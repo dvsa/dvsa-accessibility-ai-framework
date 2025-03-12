@@ -1,7 +1,5 @@
-import activesupport.driver.Browser;
-import org.junit.Before;
-import org.junit.Test;
-import org.openqa.selenium.By;
+import org.dvsa.testing.lib.SpiderCrawler;
+import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;
 
@@ -10,10 +8,6 @@ public class PageCrawlerTest {
 
     String baseURL = "https://ssweb.qa.olcs.dev-dvsacloud.uk/auth/login/";
 
-    @Before
-    public void setUp() {
-        System.setProperty("browser", "headless");
-    }
 
     @Test
     public void someTest() {
