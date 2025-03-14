@@ -51,6 +51,13 @@
             <artifactId>jsoup</artifactId>
             <version>${jsoup.version}</version>
         </dependency>
+        <!-- Maven Dependency -->
+        <dependency>
+            <groupId>com.microsoft.playwright</groupId>
+            <artifactId>playwright</artifactId>
+            <version>1.50.0</version> <!-- Use latest version -->
+        </dependency>
+
         <dependency>
             <groupId>com.deque.html.axe-core</groupId>
             <artifactId>playwright</artifactId>
