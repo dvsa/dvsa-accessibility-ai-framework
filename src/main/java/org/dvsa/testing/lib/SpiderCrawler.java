@@ -1,10 +1,10 @@
 package org.dvsa.testing.lib;
 
-import com.microsoft.playwright.BrowserType;
 import com.microsoft.playwright.Page;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
-import org.dvsa.testing.lib.Util.PlaywrightManager;
+import org.dvsa.testing.lib.Util.AnswerBot;
+import org.dvsa.testing.lib.Util.PlayWrightManager;
 import org.jsoup.Jsoup;
 import org.jsoup.nodes.Document;
 import org.jsoup.nodes.Element;
@@ -13,6 +13,7 @@ import java.io.IOException;
 import java.util.*;
 
 import static org.dvsa.testing.lib.Util.AXEScanner.scan;
+import static org.dvsa.testing.lib.Util.AnswerBot.formAutoFill;
 
 
 public class SpiderCrawler {
@@ -25,7 +26,7 @@ public class SpiderCrawler {
                 Document doc = Jsoup.connect(url)
                         .userAgent("Mozilla/5.0")
                         .ignoreHttpErrors(true)
-                        .timeout(50000)
+                        .timeout(500000)
                         .get();
 
                 int statusCode = doc.connection().response().statusCode();
@@ -58,13 +59,16 @@ public class SpiderCrawler {
 
             for (Element link : doc.select("a[href]")) {
                 String formattedLink = link.absUrl("href");
-                if (!visited.contains(formattedLink))
+                if (!visited.contains(formattedLink) && formattedLink.contains("dvsacloud")) {
                     crawler(level + 1, formattedLink, visited);
-                PlaywrightManager manager = new ChromiumManager();
-                manager.initialize(new BrowserType.LaunchOptions().setHeadless(true));
-                Page page = manager.getPage();
-                page.navigate(url);
-                scan(page);
+                    var browser = new PlayWrightManager();
+                    browser.selectBrowser("chrome");
+                    Page page = browser.getPage();
+                    page.navigate(formattedLink);
+                    formAutoFill(page,formattedLink);
+                    scan(page);
+                    System.out.println("THE URL: " + formattedLink);
+                }
             }
         }
     }

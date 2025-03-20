@@ -16,7 +16,9 @@
         <slf4j-log4j12.version>2.24.3</slf4j-log4j12.version>
         <junit.jupiter.version>5.12.0</junit.jupiter.version>
         <jsoup.version>1.19.1</jsoup.version>
-        <AXe.playwright.version>4.4.1</AXe.playwright.version>
+        <AXe.playwright.version>4.10.1</AXe.playwright.version>
+        <commons.version>3.12.0</commons.version>
+        <playwright.version>1.50.0</playwright.version>
     </properties>
 
 
@@ -41,12 +43,6 @@
             <version>${slf4j-log4j12.version}</version>
         </dependency>
         <dependency>
-            <groupId>org.junit.jupiter</groupId>
-            <artifactId>junit-jupiter-api</artifactId>
-            <version>${junit.jupiter.version}</version>
-            <scope>test</scope>
-        </dependency>
-        <dependency>
             <groupId>org.jsoup</groupId>
             <artifactId>jsoup</artifactId>
             <version>${jsoup.version}</version>
@@ -55,13 +51,24 @@
         <dependency>
             <groupId>com.microsoft.playwright</groupId>
             <artifactId>playwright</artifactId>
-            <version>1.50.0</version> <!-- Use latest version -->
+            <version>${playwright.version}</version> <!-- Use latest version -->
+        </dependency>
+        <dependency>
+            <groupId>org.apache.commons</groupId>
+            <artifactId>commons-lang3</artifactId>
+            <version>${commons.version}</version>
         </dependency>
 
         <dependency>
             <groupId>com.deque.html.axe-core</groupId>
             <artifactId>playwright</artifactId>
             <version>${AXe.playwright.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.junit.jupiter</groupId>
+            <artifactId>junit-jupiter-api</artifactId>
+            <version>${junit.jupiter.version}</version>
+            <scope>compile</scope>
         </dependency>
     </dependencies>
 </project>

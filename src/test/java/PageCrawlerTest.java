@@ -1,8 +1,7 @@
-import com.microsoft.playwright.BrowserType;
 import com.microsoft.playwright.Page;
-import org.dvsa.testing.lib.ChromiumManager;
 import org.dvsa.testing.lib.SpiderCrawler;
-import org.dvsa.testing.lib.Util.PlaywrightManager;
+import org.dvsa.testing.lib.Util.AnswerBot;
+import org.dvsa.testing.lib.Util.PlayWrightManager;
 import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;
@@ -24,16 +23,12 @@ public class PageCrawlerTest {
     @Test
     public void someTest() {
         setBaseURL("https://ssweb.qa.olcs.dev-dvsacloud.uk/register/");
-        SpiderCrawler.crawler(1, getBaseURL(), new ArrayList<>());
-    }
+        var browser = new PlayWrightManager();
+        browser.selectBrowser("chrome");
+        Page page = browser.getPage();
+        AnswerBot.formAutoFill(page, getBaseURL());
 
-    public static String getWordAfterWWW(String url) {
-        url = url.replaceFirst("https?://", ""); // Remove "http://" or "https://"
-        String[] parts = url.split("\\."); // Split by "."
+//        SpiderCrawler.crawler(1, getBaseURL(), new ArrayList<>());
 
-        if (parts.length > 1 && parts[0].equalsIgnoreCase("www")) {
-            return parts[1]; // Return the word after "www"
-        }
-        return "Not found";
     }
 }
