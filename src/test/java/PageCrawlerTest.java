@@ -6,6 +6,8 @@ import org.junit.jupiter.api.Test;
 
 import java.util.ArrayList;
 
+import static org.dvsa.testing.lib.Util.AnswerBot.formAutoFill;
+
 
 public class PageCrawlerTest {
 
@@ -22,13 +24,13 @@ public class PageCrawlerTest {
 
     @Test
     public void someTest() {
-        setBaseURL("https://ssweb.qa.olcs.dev-dvsacloud.uk/register/");
+        setBaseURL("https://int.dev.reminders.mot-testing.service.gov.uk/begin");
+//        setBaseURL("https://ssweb.qa.olcs.dev-dvsacloud.uk/register/");
         var browser = new PlayWrightManager();
         browser.selectBrowser("chrome");
         Page page = browser.getPage();
-        AnswerBot.formAutoFill(page, getBaseURL());
+        formAutoFill(page,getBaseURL());
 
 //        SpiderCrawler.crawler(1, getBaseURL(), new ArrayList<>());
-
     }
 }

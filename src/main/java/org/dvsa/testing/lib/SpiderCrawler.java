@@ -59,7 +59,7 @@ public class SpiderCrawler {
 
             for (Element link : doc.select("a[href]")) {
                 String formattedLink = link.absUrl("href");
-                if (!visited.contains(formattedLink) && formattedLink.contains("dvsacloud")) {
+                if (!visited.contains(formattedLink) && formattedLink.contains("mot-testing")) {
                     crawler(level + 1, formattedLink, visited);
                     var browser = new PlayWrightManager();
                     browser.selectBrowser("chrome");

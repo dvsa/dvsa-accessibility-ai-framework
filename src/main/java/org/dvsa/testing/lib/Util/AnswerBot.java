@@ -9,8 +9,9 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.util.List;
-import java.util.Optional;
 import java.util.concurrent.ThreadLocalRandom;
+
+import static org.dvsa.testing.lib.Util.AXEScanner.scan;
 
 
 public class AnswerBot {
@@ -22,8 +23,9 @@ public class AnswerBot {
         inputElements = page.querySelectorAll("input");
 
         int attempts = 0; // Keep track of attempts
+        int maxAttempts = 10; // Prevent infinite loops
 
-        while (attempts < inputElements.size()) {
+        while (attempts < maxAttempts) {
             try {
                 inputElements = page.querySelectorAll("input");
 
@@ -69,70 +71,45 @@ public class AnswerBot {
                                 }
                             }
                             case "text" -> {
-                                String inputValue = locator.inputValue();
-
-                                if (inputValue == null || inputValue.isEmpty()) {
-                                    String fieldLabel = Optional.ofNullable(locator.getAttribute("name"))
-                                            .or(() -> Optional.ofNullable(locator.getAttribute("aria-label")))
-                                            .or(() -> Optional.ofNullable(locator.getAttribute("placeholder")))
-                                            .orElse("")
-                                            .toLowerCase();
-
-                                    if (fieldLabel.contains("email")) {
-                                        locator.fill("testing.crawler@dvsa.gov.uk");
-
-                                    } else if (fieldLabel.contains("phone") || fieldLabel.contains("contact") || fieldLabel.matches(".*\\d.*")) {
-                                        String phoneNumber = "07" + ThreadLocalRandom.current().nextInt(100000000, 999999999);
-                                        locator.fill(phoneNumber);
-
-                                    } else if (fieldLabel.contains("first name") || fieldLabel.contains("given name")) {
-                                        String firstName = RandomStringUtils.randomAlphabetic(6, 10);
-                                        locator.fill(firstName);
-                                    } else if (fieldLabel.contains("last name") || fieldLabel.contains("surname")) {
-                                        String lastName = RandomStringUtils.randomAlphabetic(6, 10);
-                                        locator.fill(lastName);
-                                    } else if (fieldLabel.contains("middle name")) {
-                                        String middleName = RandomStringUtils.randomAlphabetic(4, 8);
-                                        locator.fill(middleName);
-                                    } else if (fieldLabel.contains("name")) {
-                                        String randomName = RandomStringUtils.randomAlphabetic(6, 12);
-                                        locator.fill(randomName);
-
-                                    } else if (fieldLabel.contains("postcode") || fieldLabel.contains("zip")) {
-                                        locator.fill("NG2 1AY");
-
-                                    } else {
-                                        String randomText = RandomStringUtils.randomAlphabetic(9).toLowerCase();
-                                        locator.fill(randomText);
-                                        locator.press("Tab");
-                                    }
-                                }
-                            }
-                            case "checkbox" -> {
-                                List<Locator> checkboxes = locator.all();
-                                if (!checkboxes.isEmpty()) {
-                                    int randomNum = ThreadLocalRandom.current().nextInt(0, checkboxes.size());
-                                    locator.nth(randomNum).click();
+                                String fieldSnapshot = locator.ariaSnapshot();
+                                if (fieldSnapshot != null && fieldSnapshot.toLowerCase().contains("email") && locator.inputValue().isEmpty()) {
+                                    locator.fill("testing.crawler@dvsa.gov.uk");
+                                } else if (fieldSnapshot != null && fieldSnapshot.toLowerCase().contains("password") && locator.inputValue().isEmpty()) {
+                                    locator.fill(RandomStringUtils.randomAlphabetic(9).toLowerCase());
+                                } else if (fieldSnapshot != null && fieldSnapshot.toLowerCase().contains("username") && locator.inputValue().isEmpty()) {
+                                    locator.fill(RandomStringUtils.randomAlphabetic(9).toLowerCase());
+                                } else if (fieldSnapshot != null && fieldSnapshot.toLowerCase().contains("phone") && locator.inputValue().isEmpty()) {
+                                    String phoneNumber = "07" + ThreadLocalRandom.current().nextInt(100000000, 999999999);
+                                    locator.fill(phoneNumber);
+                                } else if (fieldSnapshot != null && fieldSnapshot.toLowerCase().contains("postcode") && locator.inputValue().isEmpty()) {
+                                    locator.fill("NG2 1AY");
+                                } else if (fieldSnapshot != null && fieldSnapshot.toLowerCase().contains("city") && locator.inputValue().isEmpty()) {
+                                    locator.fill(RandomStringUtils.randomAlphabetic(9).toLowerCase());
+                                } else if (fieldSnapshot != null && fieldSnapshot.toLowerCase().contains("code") && locator.inputValue().isEmpty()) {
+                                    locator.fill(String.valueOf(ThreadLocalRandom.current().nextInt(0, 99999)));
                                 } else {
-                                    LOGGER.warn("No checkboxes buttons found");
+                                    locator.fill(RandomStringUtils.randomAlphabetic(9).toLowerCase());
                                 }
                             }
-                            default -> LOGGER.warn("Unsupported input type: {}", type);
+                            case "checkbox" -> element.click();
+                            default -> System.out.println("Unsupported input type: " + type);
                         }
                     }
                 }
+                scan(page);
 
                 // Click the submit button after processing all elements
-                Locator submitButton = page.locator("//*[@name='form-actions[submit]']");
-                if (submitButton.isVisible()) {
-                    submitButton.click();
+                Locator submitButton = page.locator("button, input[type='submit']").filter(new Locator.FilterOptions().setHasText("Continue"));
+
+                if (submitButton.isVisible() && submitButton.count() > 0){
+                    submitButton.first().click();
                     LOGGER.info("Form submitted successfully.");
                 } else {
                     LOGGER.info("Submit button not found.");
                 }
 
             } catch (PlaywrightException e) {
-                LOGGER.info("Encountered a stale element issue, retrying... Attempt " + (attempts + 1));
+                LOGGER.info("Encountered a stale element issue, retrying... Attempt {}", attempts + 1);
                 attempts++; // Increment retry attempts
             }
         }
