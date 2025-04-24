@@ -1,4 +1,4 @@
-package org.dvsa.testing.lib.Util;
+package org.dvsa.testing.framework.browser;
 
 import com.microsoft.playwright.*;
 import org.junit.jupiter.api.TestInstance;
@@ -8,8 +8,6 @@ public class PlayWrightManager {
 
     // Shared browser instance for all tests in the class.
     private Browser browser;
-    // New instance for each test method.
-    private BrowserContext context;
     private Page page;
 
     public Page getPage() {
@@ -28,7 +26,8 @@ public class PlayWrightManager {
         };
 
         browser = browserType.launch(new BrowserType.LaunchOptions().setHeadless(headlessMode));
-        context = browser.newContext();
+        // New instance for each test method.
+        BrowserContext context = browser.newContext();
         page = context.newPage();
     }
 

@@ -4,21 +4,20 @@
          xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
     <modelVersion>4.0.0</modelVersion>
 
-    <groupId>org.dvsa.testing.lib</groupId>
-    <artifactId>Page-Crawler</artifactId>
-    <version>1.0</version>
+    <groupId>org.dvsa.testing.framework</groupId>
+    <artifactId>page-crawler</artifactId>
+    <version>2.0</version>
 
     <properties>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
         <maven.compiler.version>3.13.0</maven.compiler.version>
-        <java.version>17</java.version>
-        <maven.compiler.release>17</maven.compiler.release>
         <slf4j-log4j12.version>2.24.3</slf4j-log4j12.version>
         <junit.jupiter.version>5.12.0</junit.jupiter.version>
         <jsoup.version>1.19.1</jsoup.version>
         <AXe.playwright.version>4.10.1</AXe.playwright.version>
         <commons.version>3.12.0</commons.version>
-        <playwright.version>1.50.0</playwright.version>
+        <playwright.version>1.51.0</playwright.version>
+        <typesafe.version>1.4.3</typesafe.version>
     </properties>
 
 
@@ -69,6 +68,17 @@
             <artifactId>junit-jupiter-api</artifactId>
             <version>${junit.jupiter.version}</version>
             <scope>compile</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.junit.jupiter</groupId>
+            <artifactId>junit-jupiter-engine</artifactId>
+            <version>${junit.jupiter.version}</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>com.typesafe</groupId>
+            <artifactId>config</artifactId>
+            <version>${typesafe.version}</version>
         </dependency>
     </dependencies>
 </project>

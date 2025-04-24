@@ -4,3 +4,4 @@ target
 *.conf
 *.txt
 *.iml
+src/test/resources/*.conf
