@@ -5,6 +5,7 @@ import com.microsoft.playwright.options.Cookie;
 import com.typesafe.config.*;
 import org.dvsa.testing.framework.browser.PlayWrightManager;
 import org.dvsa.testing.framework.jsoup.SpiderCrawler;
+import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.Test;
 
 import java.io.IOException;
@@ -13,6 +14,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
+import static org.dvsa.testing.framework.axe.AXEScanner.generateFinalReport;
 import static org.dvsa.testing.framework.bots.AnswerBot.formAutoFill;
 import static org.dvsa.testing.framework.otp.Generator.generatePin;
 
@@ -39,6 +41,7 @@ public class PageCrawlerAnswerBotTest {
         this.baseURL = baseURL;
     }
 
+
     @Test
     public void mtsRandomAnswerAndCrawlerScanner() throws IOException {
         setBaseURL(config.getString("baseURL"));
@@ -63,7 +66,12 @@ public class PageCrawlerAnswerBotTest {
 
         setCookies(jsoupCookies);
 
-        formAutoFill(page, page.url());
         SpiderCrawler.crawler(1, page.url(), new ArrayList<>(), page);
+        formAutoFill(page, page.url());
+    }
+
+    @AfterAll
+    public static void testAfter(){
+        generateFinalReport();
     }
 }

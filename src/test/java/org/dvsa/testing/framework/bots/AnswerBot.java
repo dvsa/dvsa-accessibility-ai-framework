@@ -9,6 +9,9 @@ import org.apache.commons.lang3.RandomStringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
+import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Paths;
 import java.util.List;
 import java.util.concurrent.ThreadLocalRandom;
 
@@ -28,7 +31,6 @@ public class AnswerBot {
         int attempts = 0;
         int maxAttempts = 10;
 
-        boolean clicked = false;
         Locator locator;
 
         while (attempts < maxAttempts) {
@@ -42,110 +44,113 @@ public class AnswerBot {
                     boolean isDisabled = element.isDisabled();
                     boolean isHidden = element.isHidden();
 
-                    if (!isDisabled && !isHidden && type != null) {
-                        locator = page.locator("input[name='" + element.getAttribute("name") + "']");
+                    if (type == null || isDisabled || isHidden) continue;
 
-                        switch (type) {
-                            case "radio" -> {
-                                if (!element.isChecked()) {
-                                    List<Locator> radioButtons = locator.all();
+                    locator = page.locator("input[name='" + element.getAttribute("name") + "']");
 
-                                    if (!radioButtons.isEmpty()) {
-                                        for (Locator radioButton : radioButtons) {
-                                            String label = radioButton.getAttribute("aria-label");
-                                            String value = radioButton.getAttribute("value");
-
-                                            if ((label != null && label.toLowerCase().contains("no")) ||
-                                                    (value != null && value.equalsIgnoreCase("n"))) {
-
-                                                if (!radioButton.isChecked()) {
-                                                    radioButton.click();
-                                                    clicked = true;
-                                                    break;
-                                                }
-                                            }
-                                        }
-                                        if (!clicked) {
-                                            int randomNum = ThreadLocalRandom.current().nextInt(0, radioButtons.size());
-                                            radioButtons.get(randomNum).click();
-                                            clicked = true;
-                                        }
-                                    } else {
-                                        LOGGER.warn("No radio buttons found.");
-                                    }
-                                }
-                            }
-                            case "text" -> {
-                                String fieldSnapshot = locator.getAttribute("name");
-                                if (fieldSnapshot.toLowerCase().contains("email")) {
-                                    waitAndEnterText(page, locator, "testing.crawler@dvsa.gov.uk");
-                                } else if (fieldSnapshot.toLowerCase().contains("password")) {
-                                    waitAndEnterText(page, locator, RandomStringUtils.randomAlphabetic(9).toLowerCase());
-                                } else if (fieldSnapshot.toLowerCase().contains("username")) {
-                                    waitAndEnterText(page, locator, RandomStringUtils.randomAlphabetic(9).toLowerCase());
-                                } else if (fieldSnapshot.toLowerCase().contains("phone")) {
-                                    String phoneNumber = "07" + ThreadLocalRandom.current().nextInt(100000000, 999999999);
-                                    waitAndEnterText(page, locator, phoneNumber);
-                                } else if (fieldSnapshot.toLowerCase().contains("postcode")) {
-                                    waitAndEnterText(page, locator, "NG2 1AY");
-                                } else if (fieldSnapshot.toLowerCase().contains("city")) {
-                                    waitAndEnterText(page, locator, RandomStringUtils.randomAlphabetic(9).toLowerCase());
-                                } else if (fieldSnapshot.toLowerCase().contains("code")) {
-                                    waitAndEnterText(page, locator, String.valueOf(ThreadLocalRandom.current().nextInt(0, 99999)));
-                                } else if (fieldSnapshot.toLowerCase().contains("registration")) {
-                                    waitAndEnterText(page, locator, config.getString("registration"));
-                                } else if (fieldSnapshot.toLowerCase().contains("vin")) {
-                                    waitAndEnterText(page, locator, config.getString("vin"));
-                                } else if (fieldSnapshot.toLowerCase().contains("weight")) {
-                                    waitAndEnterText(page, locator, String.valueOf(ThreadLocalRandom.current().nextInt(0, 99)));
-                                } else {
-                                    waitAndEnterText(page, locator, RandomStringUtils.randomAlphabetic(9).toLowerCase());
-                                }
-                            }
-                            case "number" -> waitAndEnterText(page, locator, String.valueOf(ThreadLocalRandom.current().nextInt(0, 99999)));
-                            case "checkbox" -> {
-                                boolean allChecked = true;
-                                boolean isChecked = (boolean) element.evaluate("el => el.checked");
-                                if (!isChecked) {
-                                    allChecked = false;
-                                    element.click();
-                                }
-                            }
-                            default -> LOGGER.info("Unsupported input type: {}", type);
+                    switch (type) {
+                        case "radio" -> handleRadioButton(locator, element);
+                        case "text", "password" -> handleTextInput(page, locator);
+                        case "number" ->
+                                waitAndEnterText(page, locator, String.valueOf(ThreadLocalRandom.current().nextInt(0, 9999)));
+                        case "search" ->
+                                waitAndEnterText(page, locator, RandomStringUtils.randomAlphabetic(9).toLowerCase());
+                        case "checkbox" -> {
+                            boolean isChecked = (boolean) element.evaluate("el => el.checked");
+                            if (!isChecked) element.click();
                         }
+                        default -> LOGGER.info("Unsupported input type: {}", type);
                     }
                 }
+
                 Thread.sleep(4000);
                 scan(page);
 
-                // Click the submit button after processing all elements
                 List<Locator> buttons = page.locator("button, input[type='button'], input[type='submit'], .button").all();
+                if (buttons.isEmpty()) return;
 
-                if (buttons.isEmpty()) {
-                    return;
-                }
-
-                int randomIndex = ThreadLocalRandom.current().nextInt(buttons.size());
-                Locator randomBtn = buttons.get(randomIndex);
-
-                randomBtn.click();
+                buttons.get(ThreadLocalRandom.current().nextInt(buttons.size())).click();
                 page.reload();
                 page.waitForTimeout(1000);
 
+                boolean errorLocator = page.isVisible("#validationBox");
+                if (errorLocator) break;
+
                 LOGGER.info("Form submitted successfully.");
 
-                List<Page> allPages = page.context().pages();
-                for (Page p : allPages) {
-                    if (p.url().contains("print")) {
-                        return;
-                    }
+                for (Page p : page.context().pages()) {
+                    if (p.url().contains("print")) return;
                 }
+
             } catch (PlaywrightException e) {
-                LOGGER.info("Encountered a stale element issue, retrying... Attempt {}", attempts + 1);
-                attempts++;
+                LOGGER.info("Encountered a stale element issue, retrying... Attempt {}", ++attempts);
             } catch (InterruptedException e) {
                 throw new RuntimeException(e);
             }
         }
+    }
+
+        private static void handleRadioButton(Locator locator, ElementHandle element) {
+        if ((boolean) element.evaluate("el => el.checked")) return;
+
+        List<Locator> radioButtons = locator.all();
+        if (radioButtons.isEmpty()) {
+            LOGGER.warn("No radio buttons found.");
+            return;
+        }
+
+        for (Locator radioButton : radioButtons) {
+            String label = radioButton.getAttribute("aria-label");
+            String value = radioButton.getAttribute("value");
+
+            if ((label != null && label.toLowerCase().contains("no")) ||
+                    (value != null && value.equalsIgnoreCase("n"))) {
+                if (!(boolean) radioButton.evaluate("el => el.checked")) {
+                    radioButton.click();
+                    return;
+                }
+            }
+        }
+        radioButtons.get(ThreadLocalRandom.current().nextInt(radioButtons.size())).click();
+    }
+
+
+    private static void handleTextInput(Page page, Locator locator) {
+        try {
+            String name = locator.getAttribute("name").toLowerCase();
+
+            if (name.contains("email")) {
+                waitAndEnterText(page, locator, "answer.bot@dvsa.gov.uk");
+            } else if (name.contains("password")) {
+                List<String> passwords = Files.readAllLines(Paths.get("src/test/resources/PwnedPasswordsTop120.txt"));
+                waitAndEnterText(page, locator, getRandomFromList(passwords));
+            } else if (name.contains("username")) {
+                List<String> usernames = Files.readAllLines(Paths.get("src/test/resources/CommonUsernames.txt"));
+                waitAndEnterText(page, locator, getRandomFromList(usernames));
+            } else if (name.contains("phone")) {
+                waitAndEnterText(page, locator, "07" + ThreadLocalRandom.current().nextInt(100000000, 999999999));
+            } else if (name.contains("postcode")) {
+                waitAndEnterText(page, locator, "NG2 1AY");
+            } else if (name.contains("city")) {
+                waitAndEnterText(page, locator, RandomStringUtils.randomAlphabetic(9).toLowerCase());
+            } else if (name.contains("code")) {
+                waitAndEnterText(page, locator, String.valueOf(ThreadLocalRandom.current().nextInt(0, 99999)));
+            } else if (name.contains("registration")) {
+                waitAndEnterText(page, locator, config.getString("registration"));
+            } else if (name.contains("vin")) {
+                waitAndEnterText(page, locator, config.getString("vin"));
+            } else if (name.contains("weight")) {
+                waitAndEnterText(page, locator, String.valueOf(ThreadLocalRandom.current().nextInt(0, 99)));
+            } else {
+                waitAndEnterText(page, locator, RandomStringUtils.randomAlphabetic(9).toLowerCase());
+            }
+
+        } catch (IOException e) {
+            LOGGER.error("Error reading text input data", e);
+        }
+    }
+
+    private static String getRandomFromList(List<String> list) {
+        return list.get(ThreadLocalRandom.current().nextInt(list.size()));
     }
 }

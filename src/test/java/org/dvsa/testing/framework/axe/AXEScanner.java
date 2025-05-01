@@ -9,16 +9,18 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.BufferedWriter;
+import java.io.File;
 import java.io.FileWriter;
-import java.util.Collections;
-import java.util.List;
-import java.util.Optional;
+import java.time.Instant;
+import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
 
 import static org.dvsa.testing.framework.axe.HtmlReportGenerator.generateHtmlReport;
 
 public class AXEScanner {
 
     private static final Logger LOGGER = LogManager.getLogger(AXEScanner.class);
+    private static final ConcurrentHashMap<Rule, String> allViolations = new ConcurrentHashMap<>();
 
     public static void scan(Page page) {
         List<String> tags = Optional.ofNullable(System.getProperty("standards.scan"))
@@ -34,15 +36,30 @@ public class AXEScanner {
         } else {
             LOGGER.info("Found {} {} ", axeResponse.getViolations().size(), " accessibility issues.");
             LOGGER.info("Issue founds {} ", axeResponse.getViolations());
-            List<Rule> violations = axeResponse.getViolations();
-            bufferedFileWriter(generateHtmlReport(violations));
+            for (Rule rule : axeResponse.getViolations()) {
+                if (!allViolations.containsKey(rule)) {
+                    allViolations.put(rule, page.url());
+                }
+            }
+        }
+    }
+
+    public static void generateFinalReport() {
+        if (!allViolations.isEmpty()) {
+            bufferedFileWriter(generateHtmlReport(allViolations));
         }
     }
 
     public static void bufferedFileWriter(String content) {
         String fileName = "accessibility.html";
+        String folderName = "Reports/";
 
-        try (BufferedWriter writer = new BufferedWriter(new FileWriter(fileName))) {
+        File dir = new File(folderName);
+        if (!dir.exists() && dir.mkdir()) {
+            LOGGER.info("Created directory: {}", "Reports");
+        }
+
+        try (BufferedWriter writer = new BufferedWriter(new FileWriter(folderName + Instant.now().getEpochSecond() + fileName, true))) {
             writer.write(content);
         } catch (Exception e) {
             LOGGER.error(e);

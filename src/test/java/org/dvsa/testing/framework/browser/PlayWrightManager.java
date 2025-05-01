@@ -6,7 +6,6 @@ import org.junit.jupiter.api.TestInstance;
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
 public class PlayWrightManager {
 
-    // Shared browser instance for all tests in the class.
     private Browser browser;
     private Page page;
 
