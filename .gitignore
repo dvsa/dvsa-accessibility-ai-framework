@@ -2,7 +2,6 @@
 /LOGS
 target
 *.conf
-*.txt
 *.iml
 src/test/resources/*.conf
 *.html
