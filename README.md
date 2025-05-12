@@ -1,5 +1,5 @@
 # DVSA AnswerBot and PageCrawler
-This framework consists of a random answerbot for web forms and a page crawler  
+This framework consists of a random answerbot for web forms and an accessibility page crawler  
 
 ## Requirements
 - Java 17
