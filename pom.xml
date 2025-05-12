@@ -4,38 +4,23 @@
          xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 http://maven.apache.org/xsd/maven-4.0.0.xsd">
     <modelVersion>4.0.0</modelVersion>
 
-    <groupId>org.dvsa.testing.lib</groupId>
-    <artifactId>PageCrawler</artifactId>
-    <version>1.2</version>
+    <groupId>org.dvsa.testing.framework</groupId>
+    <artifactId>page-crawler</artifactId>
+    <version>2.0</version>
 
     <properties>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
-        <nexus.releases>https://nexus.olcs.dev-dvsacloud.uk/repository/maven-releases</nexus.releases>
-        <nexus.snapshots>https://nexus.olcs.dev-dvsacloud.uk/repository/maven-snapshots</nexus.snapshots>
-        <maven.compiler.version>3.8.1</maven.compiler.version>
-        <active-support.version>1.6.5</active-support.version>
-        <slf4j-log4j12.version>2.17.0</slf4j-log4j12.version>
-        <java.version>1.8</java.version>
-        <junit.jupiter.version>5.6.0</junit.jupiter.version>
-        <apache-commons.version>1.8</apache-commons.version>
+        <maven.compiler.version>3.13.0</maven.compiler.version>
+        <slf4j-log4j12.version>2.24.3</slf4j-log4j12.version>
+        <junit.jupiter.version>5.12.0</junit.jupiter.version>
+        <jsoup.version>1.19.1</jsoup.version>
+        <AXe.playwright.version>4.10.1</AXe.playwright.version>
+        <commons.version>3.12.0</commons.version>
+        <playwright.version>1.51.0</playwright.version>
+        <typesafe.version>1.4.3</typesafe.version>
     </properties>
 
 
-    <repositories>
-        <repository>
-            <id>maven-releases</id>
-            <url>${nexus.releases}</url>
-        </repository>
-    </repositories>
-
-    <pluginRepositories>
-        <pluginRepository>
-            <id>yle-public</id>
-            <name>Yle public repository</name>
-            <url>https://maven.yle.fi/release</url>
-            <layout>default</layout>
-        </pluginRepository>
-    </pluginRepositories>
 
     <build>
         <plugins>
@@ -44,45 +29,56 @@
                 <artifactId>maven-compiler-plugin</artifactId>
                 <version>${maven.compiler.version}</version>
                 <configuration>
-                    <source>1.8</source>
-                    <target>1.8</target>
+                    <source>17</source>
+                    <target>17</target>
                 </configuration>
             </plugin>
         </plugins>
     </build>
     <dependencies>
         <dependency>
-            <groupId>org.apache.commons</groupId>
-            <artifactId>commons-collections4</artifactId>
-            <version>4.1</version>
-        </dependency>
-        <dependency>
             <groupId>org.apache.logging.log4j</groupId>
             <artifactId>log4j-core</artifactId>
             <version>${slf4j-log4j12.version}</version>
         </dependency>
         <dependency>
-            <groupId>org.junit.jupiter</groupId>
-            <artifactId>junit-jupiter</artifactId>
-            <version>${junit.jupiter.version}</version>
-        </dependency>
-        <dependency>
-            <groupId>org.dvsa.testing.lib</groupId>
-            <artifactId>active-support</artifactId>
-            <version>${active-support.version}</version>
-        </dependency>
-        <dependency>
             <groupId>org.jsoup</groupId>
             <artifactId>jsoup</artifactId>
-            <version>1.14.3</version>
+            <version>${jsoup.version}</version>
+        </dependency>
+        <!-- Maven Dependency -->
+        <dependency>
+            <groupId>com.microsoft.playwright</groupId>
+            <artifactId>playwright</artifactId>
+            <version>${playwright.version}</version> <!-- Use latest version -->
+        </dependency>
+        <dependency>
+            <groupId>org.apache.commons</groupId>
+            <artifactId>commons-lang3</artifactId>
+            <version>${commons.version}</version>
+        </dependency>
+
+        <dependency>
+            <groupId>com.deque.html.axe-core</groupId>
+            <artifactId>playwright</artifactId>
+            <version>${AXe.playwright.version}</version>
+        </dependency>
+        <dependency>
+            <groupId>org.junit.jupiter</groupId>
+            <artifactId>junit-jupiter-api</artifactId>
+            <version>${junit.jupiter.version}</version>
+            <scope>compile</scope>
+        </dependency>
+        <dependency>
+            <groupId>org.junit.jupiter</groupId>
+            <artifactId>junit-jupiter-engine</artifactId>
+            <version>${junit.jupiter.version}</version>
+            <scope>test</scope>
+        </dependency>
+        <dependency>
+            <groupId>com.typesafe</groupId>
+            <artifactId>config</artifactId>
+            <version>${typesafe.version}</version>
         </dependency>
     </dependencies>
-
-    <!--  Nexus Configuration  -->
-    <distributionManagement>
-        <repository>
-            <id>maven-releases</id>
-            <url>${nexus.releases}</url>
-        </repository>
-    </distributionManagement>
 </project>
