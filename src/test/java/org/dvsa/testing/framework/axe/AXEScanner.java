@@ -11,7 +11,8 @@ import org.apache.logging.log4j.Logger;
 import java.io.BufferedWriter;
 import java.io.File;
 import java.io.FileWriter;
-import java.time.Instant;
+import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -51,6 +52,7 @@ public class AXEScanner {
     }
 
     public static void bufferedFileWriter(String content) {
+        String dateTime = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd-HH:mm:ss-"));
         String fileName = "accessibility.html";
         String folderName = "Reports/";
 
@@ -59,7 +61,7 @@ public class AXEScanner {
             LOGGER.info("Created directory: {}", "Reports");
         }
 
-        try (BufferedWriter writer = new BufferedWriter(new FileWriter(folderName + Instant.now().getEpochSecond() + fileName, true))) {
+        try (BufferedWriter writer = new BufferedWriter(new FileWriter(folderName + dateTime + fileName, true))) {
             writer.write(content);
         } catch (Exception e) {
             LOGGER.error(e);

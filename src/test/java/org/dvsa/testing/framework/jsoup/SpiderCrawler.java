@@ -50,8 +50,7 @@ public class SpiderCrawler {
 
 
     public static void crawler(int level, String url, ArrayList<String> visited, Page page) {
-
-        if (level > 2 | visited.contains(url)) {
+        if (level >= 5 || visited.contains(url)) {
             return;
         }
 
@@ -63,7 +62,9 @@ public class SpiderCrawler {
 
             for (Element link : doc.select("a[href]")) {
                 String formattedLink = link.absUrl("href");
-                if (!visited.contains(formattedLink) && formattedLink.contains(config.getString("domain")) && (!formattedLink.contains("logout"))) {
+                if (!visited.contains(formattedLink) && formattedLink.contains(config.getString("domain"))
+                        && !formattedLink.contains("logout") && !formattedLink.contains("csv") && !formattedLink.contains("download"))
+                {
                     crawler(level + 1, formattedLink, visited, page);
                     page.navigate(formattedLink, new Page.NavigateOptions().setWaitUntil(WaitUntilState.LOAD));
                     Page tab1 = page.context().pages().get(0);
