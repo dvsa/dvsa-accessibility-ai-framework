@@ -6,4 +6,4 @@ This framework consists of a random answerbot for web forms and a page crawler
 - Maven 3.6.3 or greater
 
 ## Executing
-mvn clean test 
+mvn clean test -Dbrowser=chrome
