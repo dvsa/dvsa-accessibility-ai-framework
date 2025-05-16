@@ -56,6 +56,7 @@ public class PageCrawlerAnswerBotTest {
         Locator passwordInput = page.locator("input[id='password']");
         Locator submitButton = page.locator("input[type='submit']");
         Locator otpCodeInput = page.locator("input[id='otp-code']");
+        Locator pinInput = page.locator("input[id='pin']");
 
         if (usernameInput.isVisible()) {
             usernameInput.fill(config.getString("username"));
@@ -68,6 +69,9 @@ public class PageCrawlerAnswerBotTest {
         }
         if (otpCodeInput.isVisible()) {
             otpCodeInput.fill(generatePin(config.getString("authKey")));
+        }
+        if (pinInput.isVisible()){
+            pinInput.fill(generatePin(config.getString("authKey")));
         }
         if (submitButton.isVisible()) {
             submitButton.click();
