@@ -63,7 +63,9 @@ public class HtmlReportGenerator {
             }
         }
         htmlReport.append("</table></body></html>");
-        return htmlReport.toString().replace("<th class=\"\" colspan=\"2\">\n" +
-                "    </th>", "");
+        return htmlReport.toString()
+                .replaceAll("<th\\s+scope=[\"']col[\"']\\s+class=[\"']numeric[\"']\\s*>\\s*</th>", "")
+                .replaceAll("<th \\s=\\s col[\"']=\\d>\\s*</th>", "")
+                .replaceAll("<th\\s+class=\"\"\\s+colspan=\"2\">\\s*</th>", "");
     }
 }
