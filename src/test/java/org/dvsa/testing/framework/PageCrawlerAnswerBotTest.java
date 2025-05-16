@@ -44,19 +44,36 @@ public class PageCrawlerAnswerBotTest {
 
     @Test
     public void mtsRandomAnswerAndCrawlerScanner() throws IOException {
-        setBaseURL(config.getString("baseURL"));
+        setBaseURL(config.getString("mtsBaseURL"));
+        Page page = login();
+        SpiderCrawler.crawler(1, page.url(), new ArrayList<>(), page);
+        formAutoFill(page, page.url());
+    }
 
+    @Test
+    public void mothRandomAnswerAndCrawlerScanner() {
+      setBaseURL(config.getString("mothBaseURL"));
+      Page page = login();
+      formAutoFill(page, page.url());
+      SpiderCrawler.crawler(1, page.url(), new ArrayList<>(), page);
+    }
+
+    private Page login() {
         var browser = new PlayWrightManager();
         browser.selectBrowser(System.getProperty("browser"));
         Page page = browser.getPage();
         page.navigate(getBaseURL());
-        page.locator("button").click();
 
+        Locator cookieAccept = page.locator("//*[contains(text(),'Accept additional cookies')]");
         Locator usernameInput = page.locator("input[id='username']");
         Locator passwordInput = page.locator("input[id='password']");
         Locator submitButton = page.locator("input[type='submit']");
         Locator otpCodeInput = page.locator("input[id='otp-code']");
         Locator pinInput = page.locator("input[id='pin']");
+
+        if (cookieAccept.isVisible()) {
+            cookieAccept.click();
+       }
 
         if (usernameInput.isVisible()) {
             usernameInput.fill(config.getString("username"));
@@ -85,11 +102,8 @@ public class PageCrawlerAnswerBotTest {
         }
 
         setCookies(jsoupCookies);
-
-        SpiderCrawler.crawler(1, page.url(), new ArrayList<>(), page);
-        formAutoFill(page, page.url());
+        return page;
     }
-
     @AfterAll
     public static void testAfter(){
         generateFinalReport();
