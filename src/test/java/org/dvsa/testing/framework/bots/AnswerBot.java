@@ -4,6 +4,7 @@ import com.microsoft.playwright.ElementHandle;
 import com.microsoft.playwright.Locator;
 import com.microsoft.playwright.Page;
 import com.microsoft.playwright.PlaywrightException;
+import com.microsoft.playwright.options.LoadState;
 import com.typesafe.config.*;
 import org.apache.commons.lang3.RandomStringUtils;
 import org.apache.logging.log4j.LogManager;
@@ -26,6 +27,7 @@ public class AnswerBot {
 
     public static void formAutoFill(Page page, String url) {
         page.navigate(url);
+        page.waitForLoadState(LoadState.LOAD);
         inputElements = page.querySelectorAll("input");
 
         int attempts = 0;
@@ -54,7 +56,7 @@ public class AnswerBot {
                         case "number" ->
                                 waitAndEnterText(page, locator, String.valueOf(ThreadLocalRandom.current().nextInt(0, 9999)));
                         case "search" ->
-                                waitAndEnterText(page, locator, RandomStringUtils.randomAlphabetic(9).toLowerCase());
+                                waitAndEnterText(page, locator, "Registration plate");
                         case "checkbox" -> {
                             boolean isChecked = (boolean) element.evaluate("el => el.checked");
                             if (!isChecked) element.click();
@@ -63,15 +65,16 @@ public class AnswerBot {
                     }
                 }
 
-                Thread.sleep(4000);
+                Thread.sleep(500);
                 scan(page);
 
-                List<Locator> buttons = page.locator("button, input[type='button'], input[type='submit'], .button").all();
+                List<Locator> buttons = page.locator("button, input[type='button'], input[type='submit'], [type='submit'], [role='button'], .button").all();
                 if (buttons.isEmpty()) return;
 
                 buttons.get(ThreadLocalRandom.current().nextInt(buttons.size())).click();
-                page.reload();
                 page.waitForTimeout(1000);
+
+                page.reload();
 
                 boolean errorLocator = page.isVisible("#validationBox");
                 if (errorLocator) break;
@@ -79,11 +82,12 @@ public class AnswerBot {
                 LOGGER.info("Form submitted successfully.");
 
                 for (Page p : page.context().pages()) {
-                    if (p.url().contains("print")) return;
+                    if (p.url().contains("print") || p.url().contains("testing-advice?")) return;
                 }
 
             } catch (PlaywrightException e) {
                 LOGGER.info("Encountered a stale element issue, retrying... Attempt {}", ++attempts);
+                page.reload();
             } catch (InterruptedException e) {
                 throw new RuntimeException(e);
             }

@@ -50,12 +50,32 @@ public class PageCrawlerAnswerBotTest {
         browser.selectBrowser(System.getProperty("browser"));
         Page page = browser.getPage();
         page.navigate(getBaseURL());
+        page.locator("button").click();
 
-        page.locator("input[id='username']").fill(config.getString("username"));
-        page.locator("input[id='password']").fill(config.getString("password"));
-        page.locator("input[type='submit']").click();
-        page.locator("input[id='pin']").fill(generatePin(config.getString("authKey")));
-        page.locator("input[type='submit']").click();
+        Locator usernameInput = page.locator("input[id='username']");
+        Locator passwordInput = page.locator("input[id='password']");
+        Locator submitButton = page.locator("input[type='submit']");
+        Locator otpCodeInput = page.locator("input[id='otp-code']");
+        Locator pinInput = page.locator("input[id='pin']");
+
+        if (usernameInput.isVisible()) {
+            usernameInput.fill(config.getString("username"));
+        }
+        if (passwordInput.isVisible()) {
+            passwordInput.fill(config.getString("password"));
+        }
+        if (submitButton.isVisible()) {
+            submitButton.click();
+        }
+        if (otpCodeInput.isVisible()) {
+            otpCodeInput.fill(generatePin(config.getString("authKey")));
+        }
+        if (pinInput.isVisible()){
+            pinInput.fill(generatePin(config.getString("authKey")));
+        }
+        if (submitButton.isVisible()) {
+            submitButton.click();
+        }
 
         List<Cookie> playwrightCookies = page.context().cookies();
         Map<String, String> jsoupCookies = new HashMap<>();

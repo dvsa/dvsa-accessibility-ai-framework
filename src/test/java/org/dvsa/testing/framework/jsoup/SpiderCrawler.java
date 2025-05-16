@@ -50,7 +50,7 @@ public class SpiderCrawler {
 
 
     public static void crawler(int level, String url, ArrayList<String> visited, Page page) {
-        if (level >= 5 || visited.contains(url)) {
+        if (level >= 10 || visited.contains(url)) {
             return;
         }
 
