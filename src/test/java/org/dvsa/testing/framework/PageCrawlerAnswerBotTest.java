@@ -6,6 +6,7 @@ import com.typesafe.config.*;
 import org.dvsa.testing.framework.browser.PlayWrightManager;
 import org.dvsa.testing.framework.jsoup.SpiderCrawler;
 import org.junit.jupiter.api.AfterAll;
+import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 
 import java.io.IOException;
@@ -24,6 +25,8 @@ public class PageCrawlerAnswerBotTest {
     private static final Config config = ConfigFactory.defaultApplication();
     private String baseURL;
     private static Map<String, String> cookies;
+    private static Page page;
+    private static PlayWrightManager browserManager;
 
     public static Map<String, String> getCookies() {
         return cookies;
@@ -41,22 +44,42 @@ public class PageCrawlerAnswerBotTest {
         this.baseURL = baseURL;
     }
 
+    @BeforeAll
+    public static void browserSetUp() {
+        browserManager = new PlayWrightManager();
+        browserManager.selectBrowser(System.getProperty("browser"));
+        page = browserManager.getPage();
+    }
 
     @Test
     public void mtsRandomAnswerAndCrawlerScanner() throws IOException {
-        setBaseURL(config.getString("baseURL"));
-
-        var browser = new PlayWrightManager();
-        browser.selectBrowser(System.getProperty("browser"));
-        Page page = browser.getPage();
+        setBaseURL(config.getString("mtsBaseURL"));
         page.navigate(getBaseURL());
-        page.locator("button").click();
+        Page page = login();
+        SpiderCrawler.crawler(1, page.url(), new ArrayList<>(), page);
+        formAutoFill(page, page.url());
+    }
 
+    @Test
+    public void mothRandomAnswerAndCrawlerScanner() {
+        setBaseURL(config.getString("mothBaseURL"));
+        page.navigate(getBaseURL());
+        setCookies();
+        formAutoFill(page, page.url());
+        SpiderCrawler.crawler(1, page.url(), new ArrayList<>(), page);
+    }
+
+    private Page login() {
+        Locator cookieAccept = page.locator("//*[contains(text(),'Accept additional cookies')]");
         Locator usernameInput = page.locator("input[id='username']");
         Locator passwordInput = page.locator("input[id='password']");
         Locator submitButton = page.locator("input[type='submit']");
         Locator otpCodeInput = page.locator("input[id='otp-code']");
         Locator pinInput = page.locator("input[id='pin']");
+
+        if (cookieAccept.isVisible()) {
+            cookieAccept.click();
+        }
 
         if (usernameInput.isVisible()) {
             usernameInput.fill(config.getString("username"));
@@ -70,13 +93,18 @@ public class PageCrawlerAnswerBotTest {
         if (otpCodeInput.isVisible()) {
             otpCodeInput.fill(generatePin(config.getString("authKey")));
         }
-        if (pinInput.isVisible()){
+        if (pinInput.isVisible()) {
             pinInput.fill(generatePin(config.getString("authKey")));
         }
         if (submitButton.isVisible()) {
             submitButton.click();
         }
 
+        setCookies();
+        return page;
+    }
+
+    private static void setCookies() {
         List<Cookie> playwrightCookies = page.context().cookies();
         Map<String, String> jsoupCookies = new HashMap<>();
 
@@ -85,13 +113,11 @@ public class PageCrawlerAnswerBotTest {
         }
 
         setCookies(jsoupCookies);
-
-        SpiderCrawler.crawler(1, page.url(), new ArrayList<>(), page);
-        formAutoFill(page, page.url());
     }
 
     @AfterAll
-    public static void testAfter(){
+    public static void testAfter() {
         generateFinalReport();
+        browserManager.closeBrowserAndPage();
     }
 }

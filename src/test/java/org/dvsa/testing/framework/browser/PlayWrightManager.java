@@ -16,7 +16,6 @@ public class PlayWrightManager {
 
     public void selectBrowser(String browserName) {
         var playwright = Playwright.create();
-
         var headlessMode = "headless".equalsIgnoreCase(browserName);
         var browserType = switch (browserName.toLowerCase()) {
             case "headless", "chrome" -> playwright.chromium();

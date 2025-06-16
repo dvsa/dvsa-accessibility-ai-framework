@@ -24,7 +24,6 @@ public class PlayWrightWaits {
                     locator.waitFor(new Locator.WaitForOptions().setState(WaitForSelectorState.ATTACHED));
                     locator.waitFor(new Locator.WaitForOptions().setState(WaitForSelectorState.VISIBLE));
                     locator.fill(inputText);
-                    page.keyboard().press("Tab");
                     return;
                 }
                 page.reload();

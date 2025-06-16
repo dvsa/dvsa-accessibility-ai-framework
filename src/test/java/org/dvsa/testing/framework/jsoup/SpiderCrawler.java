@@ -21,7 +21,6 @@ public class SpiderCrawler {
     private static final Logger LOGGER = LogManager.getLogger(SpiderCrawler.class);
 
     public static Document request(String url, ArrayList<String> visitedURL) {
-
         System.setProperty("https.protocols", "TLSv1.2,TLSv1.3");
         try {
             if (UrlValidator.isURLValid(url)) {

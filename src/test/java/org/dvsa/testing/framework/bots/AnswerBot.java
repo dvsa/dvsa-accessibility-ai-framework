@@ -1,9 +1,6 @@
 package org.dvsa.testing.framework.bots;
 
-import com.microsoft.playwright.ElementHandle;
-import com.microsoft.playwright.Locator;
-import com.microsoft.playwright.Page;
-import com.microsoft.playwright.PlaywrightException;
+import com.microsoft.playwright.*;
 import com.microsoft.playwright.options.LoadState;
 import com.typesafe.config.*;
 import org.apache.commons.lang3.RandomStringUtils;
@@ -67,14 +64,18 @@ public class AnswerBot {
 
                 Thread.sleep(500);
                 scan(page);
-
-                List<Locator> buttons = page.locator("button, input[type='button'], input[type='submit'], [type='submit'], [role='button'], .button").all();
+                List<Locator> buttons = page.locator("button:visible:enabled, input[type='submit']:visible:enabled, input[type='button']:visible:enabled, " +
+                                "[role='button']:visible:enabled, .button:visible:enabled, summary:visible").all();
                 if (buttons.isEmpty()) return;
 
-                buttons.get(ThreadLocalRandom.current().nextInt(buttons.size())).click();
-                page.waitForTimeout(1000);
-
-                page.reload();
+                if (buttons.get(ThreadLocalRandom.current().nextInt(buttons.size())).isEnabled()) {
+                    page.waitForResponse(
+                            response -> response.status() == 200,
+                            () -> buttons.get(ThreadLocalRandom.current().nextInt(buttons.size())).click()
+                    );
+                    page.waitForTimeout(1000);
+                    scan(page);
+                }
 
                 boolean errorLocator = page.isVisible("#validationBox");
                 if (errorLocator) break;
@@ -82,7 +83,8 @@ public class AnswerBot {
                 LOGGER.info("Form submitted successfully.");
 
                 for (Page p : page.context().pages()) {
-                    if (p.url().contains("print") || p.url().contains("testing-advice?")) return;
+                    if (p.url().contains("print") || p.url().contains("testing-advice?"))
+                        return;
                 }
 
             } catch (PlaywrightException e) {
@@ -146,7 +148,7 @@ public class AnswerBot {
             } else if (name.contains("weight")) {
                 waitAndEnterText(page, locator, String.valueOf(ThreadLocalRandom.current().nextInt(0, 99)));
             } else {
-                waitAndEnterText(page, locator, RandomStringUtils.randomAlphabetic(9).toLowerCase());
+                waitAndEnterText(page, locator, RandomStringUtils.randomAlphabetic(11).toLowerCase());
             }
 
         } catch (IOException e) {
