@@ -5,3 +5,4 @@ target
 *.iml
 src/test/resources/*.conf
 *.html
+.DS_Store
