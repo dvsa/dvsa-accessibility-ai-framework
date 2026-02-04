@@ -10,28 +10,37 @@ public class PlayWrightWaits {
     private static final Logger LOGGER = LogManager.getLogger(PlayWrightWaits.class);
 
     public static void waitAndEnterText(Page page, Locator locator, String inputText) {
-        int timeoutMills = 10000;
-        int pollInterval = 200;
+        int timeoutMills = 5000; // Reduced from 10000
         long startTime = System.currentTimeMillis();
 
         while (System.currentTimeMillis() - startTime < timeoutMills) {
             try {
                 String fieldSnapshot = locator.getAttribute("name");
-                String inputValue = locator.inputValue();
-
-                if (fieldSnapshot != null && inputValue.isEmpty()) {
-                    page.waitForTimeout(1000);
-                    locator.waitFor(new Locator.WaitForOptions().setState(WaitForSelectorState.ATTACHED));
-                    locator.waitFor(new Locator.WaitForOptions().setState(WaitForSelectorState.VISIBLE));
-                    locator.fill(inputText);
-                    return;
+                
+                if (fieldSnapshot != null) {
+                    // Wait for element to be ready without excessive delays
+                    locator.waitFor(new Locator.WaitForOptions()
+                        .setState(WaitForSelectorState.VISIBLE)
+                        .setTimeout(2000)); // Reduced timeout
+                    
+                    String inputValue = locator.inputValue();
+                    if (inputValue.isEmpty()) {
+                        locator.fill(inputText);
+                        return;
+                    } else {
+                        // Clear and fill if field has content
+                        locator.clear();
+                        locator.fill(inputText);
+                        return;
+                    }
                 }
-                page.reload();
-                Thread.sleep(pollInterval);
+                // Short wait before retry, no page reload
+                page.waitForTimeout(100); // Much shorter wait
             } catch (Exception e) {
-                LOGGER.error(e);
+                LOGGER.warn("Retry text input: {}", e.getMessage());
+                page.waitForTimeout(200);
             }
         }
-        throw new RuntimeException("textbox not found ");
+        throw new RuntimeException("textbox not found or not fillable within timeout");
     }
 }

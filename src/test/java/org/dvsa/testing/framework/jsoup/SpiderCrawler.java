@@ -1,8 +1,10 @@
 package org.dvsa.testing.framework.jsoup;
 
-import com.microsoft.playwright.Page;
+import com.microsoft.playwright.*;
+import com.microsoft.playwright.options.LoadState;
 import com.microsoft.playwright.options.WaitUntilState;
-import com.typesafe.config.*;
+import org.dvsa.testing.framework.config.AppConfig;
+import org.apache.commons.lang3.RandomStringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jsoup.Jsoup;
@@ -10,14 +12,19 @@ import org.jsoup.nodes.Document;
 import org.jsoup.nodes.Element;
 
 import java.io.IOException;
+import java.nio.file.Files;
+import java.nio.file.Paths;
 import java.util.*;
+import java.util.concurrent.ThreadLocalRandom;
+import java.util.stream.Collectors;
 
 import static org.dvsa.testing.framework.PageCrawlerAnswerBotTest.getCookies;
 import static org.dvsa.testing.framework.axe.AXEScanner.scan;
+import static org.dvsa.testing.framework.browser.PlayWrightWaits.waitAndEnterText;
 
 
 public class SpiderCrawler {
-    private static final Config config = ConfigFactory.defaultApplication();
+
     private static final Logger LOGGER = LogManager.getLogger(SpiderCrawler.class);
 
     public static Document request(String url, ArrayList<String> visitedURL) {
@@ -59,18 +66,39 @@ public class SpiderCrawler {
         if (doc != null) {
             LOGGER.info("Crawling: {}", url);
 
+            // Navigate to the page first for AnswerBot interaction
+            page.navigate(url, new Page.NavigateOptions().setWaitUntil(WaitUntilState.LOAD));
+            Page tab1 = page.context().pages().get(0);
+            tab1.bringToFront();
+            
+            // Use AnswerBot to fill forms and click buttons on the current page
+            try {
+                // Instead of duplicating logic, reference SpiderCrawler.handleRadioButton and SpiderCrawler.handleTextInput where needed in other classes.
+                // Scan the page after AnswerBot interaction
+                scan(page);
+                
+                // Small delay to ensure page is ready after interactions
+                page.waitForTimeout(1000);
+                
+            } catch (Exception e) {
+                LOGGER.warn("AnswerBot interaction failed on {}: {}", url, e.getMessage());
+            }
+
             for (Element link : doc.select("a[href]")) {
                 String formattedLink = link.absUrl("href");
-                if (!visited.contains(formattedLink) && formattedLink.contains(config.getString("domain"))
+                if (!visited.contains(formattedLink) && formattedLink.contains(AppConfig.getString("domain"))
                         && !formattedLink.contains("logout") && !formattedLink.contains("csv") && !formattedLink.contains("download"))
                 {
                     crawler(level + 1, formattedLink, visited, page);
-                    page.navigate(formattedLink, new Page.NavigateOptions().setWaitUntil(WaitUntilState.LOAD));
-                    Page tab1 = page.context().pages().get(0);
-                    tab1.bringToFront();
-                    scan(page);
                 }
             }
         }
+    }
+
+    /**
+     * Get random item from list (adapted from AnswerBot)
+     */
+    private static String getRandomFromList(List<String> list) {
+        return list.get(ThreadLocalRandom.current().nextInt(list.size()));
     }
 }

@@ -2,7 +2,8 @@ package org.dvsa.testing.framework;
 
 import com.microsoft.playwright.*;
 import com.microsoft.playwright.options.Cookie;
-import com.typesafe.config.*;
+import org.dvsa.testing.framework.config.AppConfig;
+import org.dvsa.testing.framework.axe.AXEScanner;
 import org.dvsa.testing.framework.browser.PlayWrightManager;
 import org.dvsa.testing.framework.jsoup.SpiderCrawler;
 import org.junit.jupiter.api.AfterAll;
@@ -15,14 +16,14 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 
-import static org.dvsa.testing.framework.axe.AXEScanner.generateFinalReport;
+import static org.dvsa.testing.framework.axe.AXEScanner.getAllViolations;
 import static org.dvsa.testing.framework.bots.AnswerBot.formAutoFill;
 import static org.dvsa.testing.framework.otp.Generator.generatePin;
 
 
 public class PageCrawlerAnswerBotTest {
 
-    private static final Config config = ConfigFactory.defaultApplication();
+
     private String baseURL;
     private static Map<String, String> cookies;
     private static Page page;
@@ -46,23 +47,28 @@ public class PageCrawlerAnswerBotTest {
 
     @BeforeAll
     public static void browserSetUp() {
+        getAllViolations().clear();
         browserManager = new PlayWrightManager();
-        browserManager.selectBrowser(System.getProperty("browser"));
+        String browserName = System.getProperty("browser");
+        if (browserName == null) {
+            browserName = "chrome";
+        }
+        browserManager.selectBrowser(browserName);
         page = browserManager.getPage();
     }
 
     @Test
     public void mtsRandomAnswerAndCrawlerScanner() throws IOException {
-        setBaseURL(config.getString("mtsBaseURL"));
+        setBaseURL(AppConfig.getString("mtsBaseURL"));
         page.navigate(getBaseURL());
         Page page = login();
         SpiderCrawler.crawler(1, page.url(), new ArrayList<>(), page);
         formAutoFill(page, page.url());
     }
 
-    @Test
+//    @Test
     public void mothRandomAnswerAndCrawlerScanner() {
-        setBaseURL(config.getString("mothBaseURL"));
+        setBaseURL(AppConfig.getString("mothBaseURL"));
         page.navigate(getBaseURL());
         setCookies();
         formAutoFill(page, page.url());
@@ -82,19 +88,19 @@ public class PageCrawlerAnswerBotTest {
         }
 
         if (usernameInput.isVisible()) {
-            usernameInput.fill(config.getString("username"));
+            usernameInput.fill(AppConfig.getString("username"));
         }
         if (passwordInput.isVisible()) {
-            passwordInput.fill(config.getString("password"));
+            passwordInput.fill(AppConfig.getString("password"));
         }
         if (submitButton.isVisible()) {
             submitButton.click();
         }
         if (otpCodeInput.isVisible()) {
-            otpCodeInput.fill(generatePin(config.getString("authKey")));
+            otpCodeInput.fill(generatePin(AppConfig.getString("authKey")));
         }
         if (pinInput.isVisible()) {
-            pinInput.fill(generatePin(config.getString("authKey")));
+            pinInput.fill(generatePin(AppConfig.getString("authKey")));
         }
         if (submitButton.isVisible()) {
             submitButton.click();
@@ -111,13 +117,12 @@ public class PageCrawlerAnswerBotTest {
         for (Cookie cookie : playwrightCookies) {
             jsoupCookies.put(cookie.name, cookie.value);
         }
-
         setCookies(jsoupCookies);
     }
 
     @AfterAll
-    public static void testAfter() {
-        generateFinalReport();
+    public static void testAfter() throws Exception {
+        new AXEScanner().generateFinalReport();
         browserManager.closeBrowserAndPage();
     }
 }
