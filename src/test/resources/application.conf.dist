@@ -6,3 +6,6 @@ authKey =
 domain =
 registration =
 vin =
+bedrock.region = 
+bedrock.agent.id = 
+bedrock.agent.alias.id = 

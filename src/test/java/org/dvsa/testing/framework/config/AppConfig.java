@@ -4,9 +4,7 @@ import java.io.IOException;
 import java.io.InputStream;
 import java.util.Properties;
 
-/**
- * Generic configuration class to replace TypeSafe config
- */
+
 public class AppConfig {
     private static final Properties properties = new Properties();
     

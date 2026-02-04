@@ -44,14 +44,11 @@ public class BedrockAgentAnalyser {
 
     public List<BedrockRecommendation> analyseViolationsWithBedrock(
             ConcurrentHashMap<Rule, String> violations,
-            Map<String, BedrockRecommendation> kbMap // new knowledge base map
+            Map<String, BedrockRecommendation> kbMap
     ) throws Exception {
 
         List<BedrockRecommendation> allRecommendations = new ArrayList<>();
 
-
-
-        // Convert violations to JSON for the agent
         String violationsJson = convertViolationsToJsonArray(violations);
 
         JSONObject promptJson = new JSONObject();
@@ -65,11 +62,11 @@ public class BedrockAgentAnalyser {
         );
         promptJson.put("violations", new JSONArray(violationsJson));
 
-        // --- Call Bedrock ---
+
         String agentResponse = invokeAgentViaRest(promptJson);
         LOGGER.info("Raw Bedrock response: {}", agentResponse);
 
-        // --- Attempt JSON parsing ---
+
         try {
             JsonNode root = MAPPER.readTree(agentResponse);
 
@@ -105,10 +102,7 @@ public class BedrockAgentAnalyser {
                 .collect(Collectors.toList());
     }
 
-    /**
-     * Fallback parser for text responses (truncated or malformed JSON).
-     * Uses knowledge base map to populate missing fields.
-     */
+
     private BedrockRecommendation parseTextRecommendation(String text, Map<String, BedrockRecommendation> kbMap) {
         if (text == null || text.isBlank()) return null;
 
@@ -132,9 +126,6 @@ public class BedrockAgentAnalyser {
         return builder.build();
     }
 
-    /**
-     * Safely parse JSON node into BedrockRecommendation using KB map
-     */
     private BedrockRecommendation parseNodeRecommendation(JsonNode node, Map<String, BedrockRecommendation> kbMap) {
         if (node == null) return null;
         try {
@@ -147,9 +138,6 @@ public class BedrockAgentAnalyser {
                 rec = parseTextRecommendation(node.toString(), kbMap);
             }
 
-
-
-            // Lookup in KB if recommendation or reference is null
             if (rec != null && rec.ruleId() != null && kbMap.containsKey(rec.ruleId())) {
                 BedrockRecommendation kbRec = kbMap.get(rec.ruleId());
                 BedrockRecommendation.Builder builder = BedrockRecommendation.builder()
@@ -268,6 +256,4 @@ public class BedrockAgentAnalyser {
         }
         return "[" + String.join(",", decodedChunks) + "]";
     }
-
-
 }

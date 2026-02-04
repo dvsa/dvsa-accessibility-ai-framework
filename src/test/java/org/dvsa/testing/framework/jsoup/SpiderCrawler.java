@@ -1,10 +1,8 @@
 package org.dvsa.testing.framework.jsoup;
 
 import com.microsoft.playwright.*;
-import com.microsoft.playwright.options.LoadState;
 import com.microsoft.playwright.options.WaitUntilState;
 import org.dvsa.testing.framework.config.AppConfig;
-import org.apache.commons.lang3.RandomStringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.jsoup.Jsoup;
@@ -12,15 +10,10 @@ import org.jsoup.nodes.Document;
 import org.jsoup.nodes.Element;
 
 import java.io.IOException;
-import java.nio.file.Files;
-import java.nio.file.Paths;
 import java.util.*;
-import java.util.concurrent.ThreadLocalRandom;
-import java.util.stream.Collectors;
 
 import static org.dvsa.testing.framework.PageCrawlerAnswerBotTest.getCookies;
 import static org.dvsa.testing.framework.axe.AXEScanner.scan;
-import static org.dvsa.testing.framework.browser.PlayWrightWaits.waitAndEnterText;
 
 
 public class SpiderCrawler {
@@ -93,12 +86,5 @@ public class SpiderCrawler {
                 }
             }
         }
-    }
-
-    /**
-     * Get random item from list (adapted from AnswerBot)
-     */
-    private static String getRandomFromList(List<String> list) {
-        return list.get(ThreadLocalRandom.current().nextInt(list.size()));
     }
 }
