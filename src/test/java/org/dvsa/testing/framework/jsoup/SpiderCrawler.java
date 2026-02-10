@@ -38,7 +38,7 @@ public class SpiderCrawler {
             LOGGER.error("Cannot extract domain from starting URL: {}", url);
             return;
         }
-        
+
         LOGGER.info("Starting crawler with base domain: {}", baseDomain);
         Set<String> visitedSet = new HashSet<>(visited);
         crawlerWithDomain(level, url, visitedSet, page, baseDomain);
@@ -46,48 +46,44 @@ public class SpiderCrawler {
     }
 
     public static void crawlerWithDomain(int level, String url, Set<String> visited, Page page, String baseDomain) {
-    // 1. Unified Guard Clause
-    if (level >= 10 || !visited.add(url) || !isSameDomain(url, baseDomain)) {
-        return;
-    }
-
-    LOGGER.info("Crawling [Level {}]: {}", level, url);
-
-    try {
-        // 2. Navigate with Playwright (single fetch approach)
-        page.navigate(url, new Page.NavigateOptions().setWaitUntil(WaitUntilState.LOAD));
-        scan(page);
-        page.waitForTimeout(1000); 
-        
-        // 3. Get page content and parse with Jsoup (no double-fetching)
-        String htmlContent = page.content();
-        Document doc = Jsoup.parse(htmlContent, url);
-        
-        LOGGER.info("Title: {}", doc.title());
-        LOGGER.info("Link: {}", url);
-        
-        // 4. Streamlined Link Extraction
-        for (Element link : doc.select("a[href]")) {
-            String nextUrl = link.absUrl("href");
-            
-            if (shouldFollow(nextUrl, baseDomain, visited)) {
-                crawlerWithDomain(level + 1, nextUrl, visited, page, baseDomain);
-            }
+        if (level >= 10 || !visited.add(url) || !isSameDomain(url, baseDomain)) {
+            return;
         }
-        
-    } catch (Exception e) {
-        LOGGER.warn("Navigation or interaction failed on {}: {}", url, e.getMessage());
+
+        LOGGER.info("Crawling [Level {}]: {}", level, url);
+
+        try {
+            page.navigate(url, new Page.NavigateOptions().setWaitUntil(WaitUntilState.LOAD));
+            scan(page);
+            page.waitForTimeout(1000);
+
+            String htmlContent = page.content();
+            Document doc = Jsoup.parse(htmlContent, url);
+
+            LOGGER.info("Title: {}", doc.title());
+            LOGGER.info("Link: {}", url);
+
+            for (Element link : doc.select("a[href]")) {
+                String nextUrl = link.absUrl("href");
+
+                if (shouldFollow(nextUrl, baseDomain, visited)) {
+                    crawlerWithDomain(level + 1, nextUrl, visited, page, baseDomain);
+                }
+            }
+
+        } catch (Exception e) {
+            LOGGER.warn("Navigation or interaction failed on {}: {}", url, e.getMessage());
+        }
     }
-}
 
-private static boolean shouldFollow(String url, String baseDomain, Set<String> visited) {
-    return !visited.contains(url) 
-        && isSameDomain(url, baseDomain)
-        && !url.matches(".*(logout|csv|download|\\.pdf|\\.zip).*"); // Use regex for cleaner filtering
-}
+    private static boolean shouldFollow(String url, String baseDomain, Set<String> visited) {
+        return !visited.contains(url)
+                && isSameDomain(url, baseDomain)
+                && !url.matches(".*(logout|csv|download|\\.pdf|\\.zip|\\.org).*"); // Use regex for cleaner filtering
+    }
 
-private static boolean isSameDomain(String url, String baseDomain) {
-    String domain = extractDomain(url);
-    return domain != null && domain.equals(baseDomain);
-}   
+    private static boolean isSameDomain(String url, String baseDomain) {
+        String domain = extractDomain(url);
+        return domain != null && domain.equals(baseDomain);
+    }
 }

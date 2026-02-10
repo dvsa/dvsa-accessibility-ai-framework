@@ -62,8 +62,8 @@ public class PageCrawlerAnswerBotTest {
         setBaseURL(AppConfig.getString("mtsBaseURL"));
         page.navigate(getBaseURL());
         Page page = login();
-        SpiderCrawler.crawler(1, page.url(), new ArrayList<>(), page);
         formAutoFill(page, page.url());
+        SpiderCrawler.crawler(1, page.url(), new ArrayList<>(), page);
     }
 
 //    @Test
