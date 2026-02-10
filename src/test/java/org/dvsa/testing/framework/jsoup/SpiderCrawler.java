@@ -10,6 +10,8 @@ import org.jsoup.nodes.Document;
 import org.jsoup.nodes.Element;
 
 import java.io.IOException;
+import java.net.MalformedURLException;
+import java.net.URL;
 import java.util.*;
 
 import static org.dvsa.testing.framework.PageCrawlerAnswerBotTest.getCookies;
@@ -20,71 +22,72 @@ public class SpiderCrawler {
 
     private static final Logger LOGGER = LogManager.getLogger(SpiderCrawler.class);
 
-    public static Document request(String url, ArrayList<String> visitedURL) {
-        System.setProperty("https.protocols", "TLSv1.2,TLSv1.3");
+    private static String extractDomain(String baseUrl) {
         try {
-            if (UrlValidator.isURLValid(url)) {
-                Document doc = Jsoup.connect(url)
-                        .userAgent("Mozilla/5.0")
-                        .ignoreHttpErrors(true)
-                        .cookies(getCookies())
-                        .timeout(500000)
-                        .get();
-
-                int statusCode = doc.connection().response().statusCode();
-
-                if (statusCode == 200) {
-                    LOGGER.info("Title: {}", doc.title());
-                    LOGGER.info("Link: {}", url);
-
-                    visitedURL.add(url);
-                    return doc;
-                }
-            }
-        } catch (IOException e) {
+            URL url = new URL(baseUrl);
+            return url.getHost();
+        } catch (MalformedURLException e) {
+            LOGGER.warn("Invalid base URL: {}", baseUrl);
             return null;
         }
-        return null;
     }
-
 
     public static void crawler(int level, String url, ArrayList<String> visited, Page page) {
-        if (level >= 10 || visited.contains(url)) {
+        String baseDomain = extractDomain(url);
+        if (baseDomain == null) {
+            LOGGER.error("Cannot extract domain from starting URL: {}", url);
             return;
         }
+        
+        LOGGER.info("Starting crawler with base domain: {}", baseDomain);
+        Set<String> visitedSet = new HashSet<>(visited);
+        crawlerWithDomain(level, url, visitedSet, page, baseDomain);
+        visited.addAll(visitedSet);
+    }
 
-        visited.add(url);
+    public static void crawlerWithDomain(int level, String url, Set<String> visited, Page page, String baseDomain) {
+    // 1. Unified Guard Clause
+    if (level >= 10 || !visited.add(url) || !isSameDomain(url, baseDomain)) {
+        return;
+    }
 
-        Document doc = request(url, visited);
-        if (doc != null) {
-            LOGGER.info("Crawling: {}", url);
+    LOGGER.info("Crawling [Level {}]: {}", level, url);
 
-            // Navigate to the page first for AnswerBot interaction
-            page.navigate(url, new Page.NavigateOptions().setWaitUntil(WaitUntilState.LOAD));
-            Page tab1 = page.context().pages().get(0);
-            tab1.bringToFront();
+    try {
+        // 2. Navigate with Playwright (single fetch approach)
+        page.navigate(url, new Page.NavigateOptions().setWaitUntil(WaitUntilState.LOAD));
+        scan(page);
+        page.waitForTimeout(1000); 
+        
+        // 3. Get page content and parse with Jsoup (no double-fetching)
+        String htmlContent = page.content();
+        Document doc = Jsoup.parse(htmlContent, url);
+        
+        LOGGER.info("Title: {}", doc.title());
+        LOGGER.info("Link: {}", url);
+        
+        // 4. Streamlined Link Extraction
+        for (Element link : doc.select("a[href]")) {
+            String nextUrl = link.absUrl("href");
             
-            // Use AnswerBot to fill forms and click buttons on the current page
-            try {
-                // Instead of duplicating logic, reference SpiderCrawler.handleRadioButton and SpiderCrawler.handleTextInput where needed in other classes.
-                // Scan the page after AnswerBot interaction
-                scan(page);
-                
-                // Small delay to ensure page is ready after interactions
-                page.waitForTimeout(1000);
-                
-            } catch (Exception e) {
-                LOGGER.warn("AnswerBot interaction failed on {}: {}", url, e.getMessage());
-            }
-
-            for (Element link : doc.select("a[href]")) {
-                String formattedLink = link.absUrl("href");
-                if (!visited.contains(formattedLink) && formattedLink.contains(AppConfig.getString("domain"))
-                        && !formattedLink.contains("logout") && !formattedLink.contains("csv") && !formattedLink.contains("download"))
-                {
-                    crawler(level + 1, formattedLink, visited, page);
-                }
+            if (shouldFollow(nextUrl, baseDomain, visited)) {
+                crawlerWithDomain(level + 1, nextUrl, visited, page, baseDomain);
             }
         }
+        
+    } catch (Exception e) {
+        LOGGER.warn("Navigation or interaction failed on {}: {}", url, e.getMessage());
     }
+}
+
+private static boolean shouldFollow(String url, String baseDomain, Set<String> visited) {
+    return !visited.contains(url) 
+        && isSameDomain(url, baseDomain)
+        && !url.matches(".*(logout|csv|download|\\.pdf|\\.zip).*"); // Use regex for cleaner filtering
+}
+
+private static boolean isSameDomain(String url, String baseDomain) {
+    String domain = extractDomain(url);
+    return domain != null && domain.equals(baseDomain);
+}   
 }
