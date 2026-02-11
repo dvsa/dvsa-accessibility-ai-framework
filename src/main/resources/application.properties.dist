@@ -1,0 +1,28 @@
+# Application Configuration Template
+# Override these values in your test/resources/application.properties
+
+# Base URLs - replace with your actual test environments
+mothBaseURL=https://your-moth-url.example.com/
+mtsBaseURL=https://your-mts-url.example.com/login
+
+# Test credentials - replace with your actual test credentials
+username=YOUR_USERNAME
+password=YOUR_PASSWORD
+authKey=YOUR_AUTH_KEY
+
+# Test data
+domain=mot-testing
+registration=YOUR_TEST_REGISTRATION
+vin=YOUR_TEST_VIN
+
+# Bedrock Configuration - replace with your actual AWS Bedrock settings
+bedrock.region=eu-west-2
+bedrock.agent.id=YOUR_BEDROCK_AGENT_ID
+bedrock.agent.alias.id=YOUR_BEDROCK_AGENT_ALIAS_ID
+
+# MCP Server Configuration
+bedrock.agent.knowledge.source=mcp
+bedrock.agent.fallback.to.s3=true
+mcp.server.host=localhost
+mcp.server.port=8080
+mcp.cache.ttl.hours=24

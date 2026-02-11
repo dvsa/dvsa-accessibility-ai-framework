@@ -5,17 +5,16 @@ import com.deque.html.axecore.playwright.AxeBuilder;
 import com.deque.html.axecore.results.AxeResults;
 import com.deque.html.axecore.results.Rule;
 import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.microsoft.playwright.Page;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.dvsa.testing.framework.ai.BedrockAgentAnalyser;
+import org.dvsa.testing.framework.mcp.integration.McpEnhancedBedrockAnalyser;
 import org.dvsa.testing.framework.ai.BedrockRecommendation;
 
 import java.io.*;
 import java.net.http.HttpClient;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -53,7 +52,6 @@ public class AXEScanner {
             LOGGER.info("Found {} {} ", axeResponse.getViolations().size(), " accessibility issues.");
             LOGGER.info("Issue founds {} ", axeResponse.getViolations());
             
-            // Capture screenshot if violations are found and not already captured for this URL
             String currentUrl = page.url();
             if (!pageScreenshots.containsKey(currentUrl)) {
                 String screenshotPath = captureScreenshot(page, currentUrl);
@@ -108,9 +106,6 @@ public class AXEScanner {
         }
     }
 
-    BedrockAgentAnalyser analyser = new BedrockAgentAnalyser(client);
-
-
     public void generateFinalReport() {
         if (allViolations.isEmpty()) {
             LOGGER.info("No accessibility issues found; skipping report generation.");
@@ -120,15 +115,17 @@ public class AXEScanner {
         try {
             LOGGER.info("Generating report with Bedrock recommendations...");
 
-            BedrockAgentAnalyser analyser = new BedrockAgentAnalyser(client);
+            BedrockAgentAnalyser analyser = new McpEnhancedBedrockAnalyser(client);
 
-            Map<String, BedrockRecommendation> kbMap = getKnowledgeBaseMap();
+            // Knowledge base is stored in S3 and accessed by Bedrock agent
+            Map<String, BedrockRecommendation> emptyKbMap = new HashMap<>();
 
             List<BedrockRecommendation> recommendationsList =
-                    analyser.analyseViolationsWithBedrock(getAllViolations(), kbMap);
+                    analyser.analyseViolationsWithBedrock(getAllViolations(), emptyKbMap);
 
             if (recommendationsList == null || recommendationsList.isEmpty()) {
-                LOGGER.warn("No AI recommendations received from Bedrock.");
+                LOGGER.warn("No AI recommendations received from Bedrock. Generating basic report...");
+                generateBasicReport();
                 return;
             }
 
@@ -137,7 +134,8 @@ public class AXEScanner {
                     .collect(Collectors.toList());
 
             if (recommendationsList.isEmpty()) {
-                LOGGER.warn("All Bedrock recommendations were null; skipping report generation.");
+                LOGGER.warn("All Bedrock recommendations were null. Generating basic report...");
+                generateBasicReport();
                 return;
             }
 
@@ -146,15 +144,16 @@ public class AXEScanner {
                     .collect(Collectors.toMap(
                             BedrockRecommendation::ruleId,
                             r -> r,
-                            (r1, r2) -> r1 // keep the first in case of duplicates
+                            (r1, r2) -> r1 
                     ));
 
             if (recommendationMap.isEmpty()) {
-                LOGGER.warn("No valid AI recommendations with ruleId found; skipping report generation.");
+                LOGGER.warn("No valid AI recommendations with ruleId found. Generating basic report...");
+                generateBasicReport();
                 return;
             }
 
-            String htmlContent = generateHtmlReport(getAllViolations(), recommendationMap, kbMap, getPageScreenshots());
+            String htmlContent = generateHtmlReport(getAllViolations(), recommendationMap, emptyKbMap, getPageScreenshots());
             bufferedFileWriter(htmlContent);
 
             LOGGER.info("Accessibility report generated successfully with AI recommendations.");
@@ -162,76 +161,28 @@ public class AXEScanner {
         } catch (JsonProcessingException e) {
             LOGGER.error(" Failed to parse Bedrock recommendations JSON", e);
             LOGGER.debug("Raw JSON received: {}", e.getMessage());
+            LOGGER.info("Generating basic report due to Bedrock JSON parsing error...");
+            generateBasicReport();
         } catch (Exception e) {
             LOGGER.error("Unexpected error while generating report", e);
+            LOGGER.info("Generating basic report due to Bedrock error...");
+            generateBasicReport();
         }
     }
 
-
-    private Map<String, BedrockRecommendation> getKnowledgeBaseMap() {
-        Map<String, BedrockRecommendation> kbMap = new HashMap<>();
-
+   
+    private void generateBasicReport() {
         try {
-            InputStream is = getClass().getResourceAsStream("/axe-kb.json");
-            if (is == null) {
-                LOGGER.warn("Knowledge base JSON not found; returning empty map.");
-                return kbMap;
-            }
-
-            String kbJson = new String(is.readAllBytes(), StandardCharsets.UTF_8);
-            JsonNode root = MAPPER.readTree(kbJson);
-
-            if (!root.isArray()) {
-                LOGGER.warn("Knowledge base JSON root is not an array; returning empty map.");
-                return kbMap;
-            }
-
-            for (JsonNode node : root) {
-                try {
-                    BedrockRecommendation kbRec = BedrockRecommendation.builder()
-                        .ruleId(node.has("ruleId") ? node.get("ruleId").asText() : null)
-                        .issue(node.has("title") ? node.get("title").asText() : "")
-                        .recommendation(node.has("recommendedFix") ? node.get("recommendedFix").asText() : "")
-                        .reference(node.has("govUkReference") ? node.get("govUkReference").asText() : "")
-                        .example(node.has("exampleFix") ? node.get("exampleFix").asText() : "")
-                        .build();
-                    kbMap.put(kbRec.ruleId(), kbRec);
-                    String normalizedId = normalizeRuleId(kbRec.ruleId());
-                    if (!normalizedId.equals(kbRec.ruleId())) {
-                        BedrockRecommendation normalizedRec = BedrockRecommendation.builder()
-                            .ruleId(normalizedId)
-                            .issue(kbRec.issue())
-                            .recommendation(kbRec.recommendation())
-                            .reference(kbRec.reference())
-                            .example(kbRec.example())
-                            .build();
-                        kbMap.put(normalizedId, normalizedRec);
-                    }
-                } catch (Exception e) {
-                    LOGGER.warn("Failed to parse KB entry: {}", node.toString(), e);
-                }
-            }
-
-            LOGGER.info("Loaded {} rules from knowledge base", kbMap.size());
+            Map<String, BedrockRecommendation> emptyRecommendations = new HashMap<>();
+            Map<String, BedrockRecommendation> emptyKbMap = new HashMap<>();
+            
+            String htmlContent = generateHtmlReport(getAllViolations(), emptyRecommendations, emptyKbMap, getPageScreenshots());
+            bufferedFileWriter(htmlContent);
+            
+            LOGGER.info("Basic accessibility report generated successfully (without AI recommendations).");
         } catch (Exception e) {
-            LOGGER.error("Failed to load knowledge base JSON", e);
+            LOGGER.error("Failed to generate basic report", e);
         }
-
-        return kbMap;
-    }
-
-
-    private String normalizeRuleId(String ruleId) {
-        return switch (ruleId) {
-            case "image-alt" -> "AXE_IMAGE_ALT_NOT_REPEATED";
-            case "heading-order" -> "AXE_HEADING_ORDER";
-            case "banner" -> "AXE_ONE_BANNER_LANDMARK";
-            case "region" -> "AXE_CONTENT_WITHIN_LANDMARKS";
-            case "heading-disorder" -> "AXE_HEADING_DISCERNIBLE_TEXT";
-            case "main-role" -> "AXE_MAIN_LANDMARK";
-            case "label" -> "AXE_FORM_LABELS";
-            default -> ruleId; // fallback: use KB ID as-is
-        };
     }
 
     public void bufferedFileWriter(String content) {

@@ -62,9 +62,15 @@ public class BedrockAgentAnalyser {
         );
         promptJson.put("violations", new JSONArray(violationsJson));
 
+        LOGGER.info("Sending to Bedrock: {}", promptJson.toString());
 
         String agentResponse = invokeAgentViaRest(promptJson);
         LOGGER.info("Raw Bedrock response: {}", agentResponse);
+
+        if (agentResponse == null || agentResponse.trim().isEmpty()) {
+            LOGGER.warn("Empty response from Bedrock");
+            return allRecommendations;
+        }
 
 
         try {
@@ -99,6 +105,7 @@ public class BedrockAgentAnalyser {
 
         return allRecommendations.stream()
                 .filter(Objects::nonNull)
+                .peek(rec -> LOGGER.debug("Returning recommendation for rule: {}", rec.ruleId()))
                 .collect(Collectors.toList());
     }
 
@@ -159,11 +166,34 @@ public class BedrockAgentAnalyser {
     private String convertViolationsToJsonArray(ConcurrentHashMap<Rule, String> violations) {
         return new JSONArray(
                 violations.entrySet().stream()
-                        .map(e -> new JSONObject()
-                                .put("ruleId", e.getKey().getId())
-                                .put("violation", e.getValue()))
-                        .toList()
+                        .map(e -> {
+                            String originalId = e.getKey().getId();
+                            String normalisedId = normaliseRuleId(originalId);
+                            LOGGER.debug("Converting rule {} -> {} for Bedrock", originalId, normalisedId);
+                            return new JSONObject()
+                                    .put("ruleId", normalisedId)
+                                    .put("violation", e.getValue());
+                        })
+                .toList()
         ).toString();
+    }
+
+    private String normaliseRuleId(String ruleId) {
+        return switch (ruleId) {
+            case "image-alt" -> "AXE_IMAGE_ALT_NOT_REPEATED";
+            case "heading-order" -> "AXE_HEADING_ORDER";
+            case "banner", "landmark-no-duplicate-banner" -> "AXE_ONE_BANNER_LANDMARK";
+            case "landmark-unique" -> "AXE_LANDMARKS_UNIQUE";
+            case "region" -> "AXE_CONTENT_WITHIN_LANDMARKS";
+            case "empty-heading", "heading-disorder", "empty-table-header" -> "AXE_HEADING_DISCERNIBLE_TEXT";
+            case "landmark-one-main", "main-role" -> "AXE_MAIN_LANDMARK";
+            case "label" -> "AXE_FORM_LABELS";
+            case "target-size" -> "AXE_TOUCH_TARGETS";
+            case "aria-allowed-attr" -> "AXE_ROLE_ARIA_ATTRIBUTES";
+            case "aria-hidden-focus" -> "AXE_ARIA_HIDDEN_FOCUSABLE";
+            case "color-contrast" -> "AXE_COLOR_CONTRAST";
+            default -> ruleId;
+        };
     }
 
     private String invokeAgentViaRest(JSONObject promptJson) throws Exception {
@@ -207,17 +237,25 @@ public class BedrockAgentAnalyser {
         HttpRequest request = builder.build();
         client = HttpClient.newHttpClient();
 
-        HttpResponse<byte[]> response =
-                client.send(request, HttpResponse.BodyHandlers.ofByteArray());
+        HttpResponse<String> response =
+                client.send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
 
         if (response.statusCode() != 200) {
             throw new RuntimeException(
-                    "Bedrock agent call failed: " +
-                            new String(response.body(), StandardCharsets.UTF_8));
+                    "Bedrock agent call failed [" + response.statusCode() + "]: " + response.body());
         }
 
-        String decoded = decodeEventStreamResponse(response.body());
-        LOGGER.debug("Decoded Bedrock Output: {}", decoded);
+        String responseBody = response.body();
+        LOGGER.debug("Raw Bedrock response: {}", responseBody);
+        
+        String decoded;
+        try {
+            decoded = decodeEventStreamResponse(responseBody.getBytes(StandardCharsets.UTF_8));
+            LOGGER.debug("Decoded as event stream: {}", decoded);
+        } catch (Exception e) {
+            LOGGER.debug("Event stream decode failed, trying direct JSON: {}", e.getMessage());
+            decoded = responseBody;
+        }
 
         String cleaned = decoded.trim();
         if (cleaned.startsWith("[[")) {
@@ -225,13 +263,23 @@ public class BedrockAgentAnalyser {
         }
         cleaned = cleaned.replaceAll("(\\r|\\n){2,}", "\n").trim();
 
-        LOGGER.debug("Cleaned Bedrock JSON: {}", cleaned);
-
+        LOGGER.debug("Final cleaned JSON: {}", cleaned);
         return cleaned;
     }
 
     private String decodeEventStreamResponse(byte[] responseBytes) {
         String raw = new String(responseBytes, StandardCharsets.UTF_8);
+        
+        try {
+            JsonNode testNode = MAPPER.readTree(raw);
+            if (testNode.isArray() || testNode.isObject()) {
+                LOGGER.debug("Response is direct JSON");
+                return raw;
+            }
+        } catch (Exception e) {
+            LOGGER.debug("Not direct JSON, trying event stream parsing");
+        }
+        
         Pattern base64Pattern = Pattern.compile("\"bytes\"\\s*:\\s*\"([A-Za-z0-9+/=]+)\"");
         Matcher matcher = base64Pattern.matcher(raw);
 
@@ -251,8 +299,8 @@ public class BedrockAgentAnalyser {
         }
 
         if (decodedChunks.isEmpty()) {
-            LOGGER.warn("No Base64 payloads found; using fallback");
-            decodedChunks.add("{\"recommendation\":\"" + raw.replace("\"", "\\\"").replace("\n", " ") + "\"}");
+            LOGGER.warn("No Base64 payloads found; returning raw response");
+            return raw;
         }
         return "[" + String.join(",", decodedChunks) + "]";
     }

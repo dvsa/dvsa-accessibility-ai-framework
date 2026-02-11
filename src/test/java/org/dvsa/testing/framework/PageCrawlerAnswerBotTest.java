@@ -11,7 +11,7 @@ import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 
 import java.io.IOException;
-import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -62,8 +62,8 @@ public class PageCrawlerAnswerBotTest {
         setBaseURL(AppConfig.getString("mtsBaseURL"));
         page.navigate(getBaseURL());
         Page page = login();
-        formAutoFill(page, page.url());
-        SpiderCrawler.crawler(1, page.url(), new ArrayList<>(), page);
+        formAutoFill(page, page.url(), "mot-testing.service.gov.uk", true);
+        SpiderCrawler.crawler(1, page.url(), new HashSet<>(), page);
     }
 
 //    @Test
@@ -71,8 +71,8 @@ public class PageCrawlerAnswerBotTest {
         setBaseURL(AppConfig.getString("mothBaseURL"));
         page.navigate(getBaseURL());
         setCookies();
-        formAutoFill(page, page.url());
-        SpiderCrawler.crawler(1, page.url(), new ArrayList<>(), page);
+        formAutoFill(page, page.url(), "check-mot.service.gov.uk", true);
+        SpiderCrawler.crawler(1, page.url(), new HashSet<>(), page);
     }
 
     private Page login() {

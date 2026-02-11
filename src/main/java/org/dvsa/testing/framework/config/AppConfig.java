@@ -30,4 +30,21 @@ public class AppConfig {
     public static String getString(String key, String defaultValue) {
         return properties.getProperty(key, defaultValue);
     }
+    
+    public static boolean getBoolean(String key, boolean defaultValue) {
+        String value = properties.getProperty(key);
+        return value != null ? Boolean.parseBoolean(value) : defaultValue;
+    }
+    
+    public static int getInt(String key, int defaultValue) {
+        String value = properties.getProperty(key);
+        if (value != null) {
+            try {
+                return Integer.parseInt(value);
+            } catch (NumberFormatException e) {
+                return defaultValue;
+            }
+        }
+        return defaultValue;
+    }
 }

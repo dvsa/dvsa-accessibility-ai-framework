@@ -2,24 +2,20 @@ package org.dvsa.testing.framework.bots;
 
 import com.microsoft.playwright.*;
 import com.microsoft.playwright.options.LoadState;
-import com.microsoft.playwright.options.WaitForSelectorState;
 import org.dvsa.testing.framework.config.AppConfig;
+import org.dvsa.testing.framework.utils.DomainValidator;
 import org.apache.commons.lang3.RandomStringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 
 import java.io.IOException;
 import java.nio.file.Files;
-import java.nio.file.Path;
 import java.nio.file.Paths;
-import java.time.LocalDateTime;
-import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.ThreadLocalRandom;
 import java.util.stream.Collectors;
 
-import static org.dvsa.testing.framework.axe.AXEScanner.scan;
 import static org.dvsa.testing.framework.browser.PlayWrightWaits.waitAndEnterText;
 
 
@@ -28,112 +24,113 @@ public class AnswerBot {
 
     private static final Logger LOGGER = LogManager.getLogger(AnswerBot.class);
 
-    public static void formAutoFill(Page page, String url) {
+    public static void formAutoFill(Page page, String url, String baseDomain, boolean allowSubdomains) {
+    if (!DomainValidator.isSameDomain(url, baseDomain, allowSubdomains)) {
+        LOGGER.warn("Skipping form fill: URL {} is outside domain {}", url, baseDomain);
+        return;
+    }
+
+    page.context().onPage(newPage -> {
+        try {
+            newPage.waitForLoadState(LoadState.DOMCONTENTLOADED);
+            if (!DomainValidator.isSameDomain(newPage.url(), baseDomain, allowSubdomains)) {
+                LOGGER.info("Closing external popup: {}", newPage.url());
+                newPage.close();
+            }
+        } catch (Exception e) { /* Tab might already be closed */ }
+    });
+
+    try {
         page.navigate(url);
         page.waitForLoadState(LoadState.LOAD);
-        inputElements = page.querySelectorAll("input");
+
+        // handleCookieBanners(page); // Disabled per user request - avoid clicking on cookies
 
         int attempts = 0;
         int maxAttempts = 10;
 
-        Locator locator;
-
         while (attempts < maxAttempts) {
+            if (!DomainValidator.isSameDomain(page.url(), baseDomain, allowSubdomains)) {
+                LOGGER.warn("Redirected to external site {}. Aborting form fill.", page.url());
+                return;
+            }
+
             try {
-                inputElements = page.querySelectorAll("input");
+                List<ElementHandle> inputElements = page.querySelectorAll("input");
 
                 for (ElementHandle element : inputElements) {
-                    if (element == null) continue;
-
+                    if (element == null || element.isDisabled() || element.isHidden()) continue;
+                    
                     String type = element.getAttribute("type");
-                    boolean isDisabled = element.isDisabled();
-                    boolean isHidden = element.isHidden();
+                    String name = element.getAttribute("name");
+                    if (name == null) continue;
 
-                    if (type == null || isDisabled || isHidden) continue;
+                    Locator locator = page.locator("input[name='" + name + "']").first();
 
-                    locator = page.locator("input[name='" + element.getAttribute("name") + "']");
-
-                    switch (type) {
+                    switch (type != null ? type : "text") {
                         case "radio" -> handleRadioButton(locator, element);
                         case "text", "password" -> handleTextInput(page, locator);
-                        case "number" ->
-                                waitAndEnterText(page, locator, String.valueOf(ThreadLocalRandom.current().nextInt(0, 9999)));
-                        case "search" ->
-                                waitAndEnterText(page, locator, "Registration plate");
+                        case "number" -> waitAndEnterText(page, locator, String.valueOf(ThreadLocalRandom.current().nextInt(0, 9999)));
                         case "checkbox" -> {
-                            boolean isChecked = (boolean) element.evaluate("el => el.checked");
-                            if (!isChecked) element.click();
+                            if (!(boolean) element.evaluate("el => el.checked")) element.click();
                         }
-                        default -> LOGGER.info("Unsupported input type: {}", type);
                     }
                 }
 
-                page.waitForTimeout(250);
-                scan(page);
-                List<Locator> buttons = getAllClickableButtons(page);
-                
-                buttons = buttons.stream()
-                        .filter(button -> {
-                            try {
-                                String text = button.textContent().toLowerCase();
-                                String value = button.getAttribute("value");
-                                if (value != null) value = value.toLowerCase();
-                                return !text.contains("sign out") && !text.contains("logout") && 
-                                       (value == null || (!value.contains("sign out") && !value.contains("logout")));
-                            } catch (Exception e) {
-                                return true; // Include button if we can't check its text
-                            }
-                        })
+                List<Locator> buttons = getAllClickableButtons(page).stream()
+                        .filter(btn -> isSafeButton(btn, baseDomain, allowSubdomains))
                         .toList();
                         
                 if (buttons.isEmpty()) return;
 
                 Locator selectedButton = buttons.get(ThreadLocalRandom.current().nextInt(buttons.size()));
-
-                boolean isClickable = selectedButton.evaluate("el => el.tagName.toLowerCase() === 'a' || !el.disabled").toString().equals("true");
-                if (isClickable) {
-                    try {
-                        selectedButton.waitFor(new Locator.WaitForOptions()
-                            .setState(WaitForSelectorState.VISIBLE)
-                            .setTimeout(2000));
-                        
-                        selectedButton.click();
-                        page.waitForTimeout(300);
-                        scan(page);
-                    } catch (Exception e) {
-                        LOGGER.warn("Button click failed: {}", e.getMessage());
-                        // Try alternative click method
-                        try {
-                            selectedButton.dispatchEvent("click");
-                            page.waitForTimeout(300);
-                            scan(page);
-                        } catch (Exception e2) {
-                            LOGGER.error("Both click methods failed: {}", e2.getMessage());
-                        }
-                    }
-                }
-
-                boolean errorLocator = page.isVisible("#validationBox");
-                if (errorLocator) break;
-
-                LOGGER.info("Form submitted successfully.");
-
-                for (Page p : page.context().pages()) {
-                    if (p.url().contains("print") || p.url().contains("testing-advice?"))
-                        return;
-                }
+                
+                selectedButton.evaluate("el => el.removeAttribute('target')");
+                
+                selectedButton.click(new Locator.ClickOptions().setTimeout(3000));
+                page.waitForTimeout(500);
 
             } catch (PlaywrightException e) {
-                LOGGER.info("Playwright exception encountered, retrying... Attempt {}: {}", ++attempts, e.getMessage());
-                if (e.getMessage().contains("stale") || e.getMessage().contains("detached")) {
-                    page.reload();
-                    page.waitForTimeout(500);
-                } else {
-                    page.waitForTimeout(300);
-                }
+                LOGGER.info("Retrying due to: {}", e.getMessage());
+                if (++attempts >= maxAttempts) break;
             }
         }
+    } catch (Exception e) {
+        LOGGER.error("Form fill failed", e);
     }
+}
+
+private static boolean isSafeButton(Locator button, String baseDomain, boolean allowSubdomains) {
+    try {
+        String text = button.textContent().toLowerCase();
+        String href = button.getAttribute("href");
+        
+        if (text.contains("sign out") || text.contains("logout")) return false;
+        
+        // Avoid clicking on any cookies-related buttons or links
+        if (text.contains("cookie") || text.contains("accept cookies") || 
+            text.contains("reject cookies") || text.contains("manage cookies") ||
+            text.contains("cookie preferences") || text.contains("cookie settings")) return false;
+        
+        if (href != null && !href.startsWith("#") && !href.startsWith("/")) {
+            if (!DomainValidator.isSameDomain(href, baseDomain, allowSubdomains)) return false;
+        }
+        
+        return true;
+    } catch (Exception e) { return false; }
+}
+
+private static void handleCookieBanners(Page page) {
+    String[] commonSelectors = {"button:has-text('Accept')", "button:has-text('Agree')", "#cookie-accept", ".optanon-allow-all"};
+    for (String selector : commonSelectors) {
+        try {
+            if (page.locator(selector).isVisible()) {
+                page.locator(selector).click();
+                page.waitForTimeout(500);
+            }
+        } catch (Exception ignored) {}
+    }
+}
 
         private static void handleRadioButton(Locator locator, ElementHandle element) {
         if ((boolean) element.evaluate("el => el.checked")) return;
@@ -259,12 +256,16 @@ public class AnswerBot {
                    !text.contains("logout") && 
                    !text.contains("log out") &&
                    !text.contains("remove") && 
+                   !text.contains("cookies") && 
                    (value == null || (!value.contains("sign out") && 
                                     !value.contains("logout") && 
-                                    !value.contains("remove"))) &&
+                                    !value.contains("remove") &&
+                                    !value.contains("cookies"))) &&
                    text.length() <= 100;
         } catch (Exception e) {
             return false;
         }
     }
+
+
 }

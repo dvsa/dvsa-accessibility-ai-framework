@@ -23,33 +23,37 @@ public class HtmlReportGenerator {
                   .replace("'", "&#x27;");
     }
 
-    /**
-     * Truncate text for better display in table cells
-     */
+    
     private static String truncateText(String text, int maxLength) {
         if (text == null) return "";
         if (text.length() <= maxLength) return text;
         return text.substring(0, maxLength) + "...";
     }
 
-    /**
-     * Normalize AXE rule ID to match Bedrock AXE_ IDs.
-     */
+    
     private static String normalizeRuleId(String ruleId) {
         return switch (ruleId) {
             case "image-alt" -> "AXE_IMAGE_ALT_NOT_REPEATED";
             case "heading-order" -> "AXE_HEADING_ORDER";
             case "banner" -> "AXE_ONE_BANNER_LANDMARK";
             case "landmark-no-duplicate-banner" -> "AXE_ONE_BANNER_LANDMARK";
-            case "landmark-unique" -> "landmark-unique"; // Use KB fallback
+            case "landmark-unique" -> "AXE_LANDMARKS_UNIQUE";
             case "region" -> "AXE_CONTENT_WITHIN_LANDMARKS";
             case "empty-heading" -> "AXE_HEADING_DISCERNIBLE_TEXT";
             case "heading-disorder" -> "AXE_HEADING_DISCERNIBLE_TEXT";
             case "landmark-one-main" -> "AXE_MAIN_LANDMARK";
             case "main-role" -> "AXE_MAIN_LANDMARK";
             case "label" -> "AXE_FORM_LABELS";
-            case "empty-table-header" -> "empty-table-header"; // Use KB fallback
-            case "aria-hidden-focus" -> "aria-hidden-focus"; // Use KB fallback
+            case "table-headers" -> "AXE_TABLE_HEADERS";
+            case "color-contrast" -> "AXE_COLOR_CONTRAST";
+            case "link-name" -> "AXE_LINK_NAME";
+            case "document-title" -> "AXE_DOCUMENT_TITLE";
+            case "html-has-lang" -> "AXE_HTML_HAS_LANG";
+            case "skip-link" -> "AXE_SKIP_LINK";
+            case "aria-roles" -> "AXE_ARIA_ROLES";
+            case "empty-table-header" -> "AXE_EMPTY_TABLE_HEADER";
+            case "aria-allowed-attr" -> "AXE_ARIA_ALLOWED_ATTR";
+            case "aria-hidden-focus" -> "AXE_ARIA_HIDDEN_FOCUS";
             default -> ruleId; // fallback: use original ID as-is
         };
     }
@@ -79,6 +83,11 @@ public class HtmlReportGenerator {
                 .append(".close { position: absolute; top: 15px; right: 35px; color: #f1f1f1; font-size: 40px; font-weight: bold; cursor: pointer; }")
                 .append(".close:hover { color: #bbb; text-decoration: none; }")
                 .append(".url-cell { max-width: 250px; word-break: break-all; }")
+                .append("td:nth-child(3) { max-width: 300px; word-break: break-all; word-wrap: break-word; }") 
+                .append("td:nth-child(4) { max-width: 250px; word-break: break-all; word-wrap: break-word; }")
+                .append("td:nth-child(8) { word-break: break-word; }")
+                .append("td:nth-child(9) { word-break: break-word; }")
+                .append("code { background-color: #f5f5f5; padding: 2px 4px; border: 1px solid #ddd; border-radius: 3px; font-family: 'Courier New', monospace; word-break: break-all; }")
                 .append("@media screen and (max-width: 768px) { table { font-size: 12px; } .screenshot-cell { width: 120px; } }")
                 .append("</style>")
                 .append("</head><body>")
@@ -87,39 +96,14 @@ public class HtmlReportGenerator {
                 .append("<table>")
                 .append("<tr>")
                 .append("<th style='width: 8%;'>ID</th>")
-                .append("<th style='width: 15%;'>Description</th>")
+                .append("<th style='width: 12%;'>Description</th>")
                 .append("<th style='width: 12%;'>HTML</th>")
-                .append("<th style='width: 15%;'>URL</th>")
-                .append("<th style='width: 12%;'>Screenshot</th>")
+                .append("<th style='width: 12%;'>URL</th>")
+                .append("<th style='width: 10%;'>Screenshot</th>")
                 .append("<th style='width: 6%;'>Impact</th>")
                 .append("<th style='width: 6%;'>Help</th>")
-                .append("<th style='width: 26%;'>AI Recommendation</th>")
-                .append("</tr>")
-                .append("th { background-color: #f2f2f2; }")
-                .append("td:nth-child(1) { width: 8%; } /* ID */")
-                .append("td:nth-child(2) { width: 12%; } /* Description */")
-                .append("td:nth-child(3) { width: 20%; max-width: 0; overflow: hidden; text-overflow: ellipsis; } /* HTML */")
-                .append("td:nth-child(4) { width: 15%; max-width: 0; overflow: hidden; text-overflow: ellipsis; } /* URL */")
-                .append("td:nth-child(5) { width: 8%; } /* Impact */")
-                .append("td:nth-child(6) { width: 7%; } /* Help URL */")
-                .append("td:nth-child(7) { width: 15%; } /* Failure Summary */")
-                .append("td:nth-child(8) { width: 15%; } /* Recommendations */")
-                .append("code { background-color: #f5f5f5; padding: 2px 4px; border: 1px solid #ddd; border-radius: 3px; font-family: 'Courier New', monospace; word-break: break-all; }")
-                .append("</style>")
-                .append("</head><body>")
-                .append("<h1>Accessibility Report</h1>")
-                .append("<h2>Issues Found</h2>")
-                .append("<table>")
-                .append("<tr>")
-                .append("<th>ID</th>")
-                .append("<th>Description</th>")
-                .append("<th>HTML</th>")
-                .append("<th>URL</th>")
-                .append("<th>Screenshot</th>")
-                .append("<th>Impact</th>")
-                .append("<th>Help URL</th>")
-                .append("<th>Failure Summary</th>")
-                .append("<th>Recommendations</th>")
+                .append("<th style='width: 16%;'>Failure Summary</th>")
+                .append("<th style='width: 18%;'>AI Recommendation</th>")
                 .append("</tr>");
 
         Map<String, String> impactColors = Map.of(
@@ -146,12 +130,10 @@ public class HtmlReportGenerator {
                 br = bedrockRecommendationMap.get(normalizedId);
             }
             
-            // Try knowledge base fallback if still not found
             if (br == null && kbMap != null) {
                 br = kbMap.get(rule.getId());
             }
             
-            // Final fallback if still not found
             if (br == null) {
                 br = BedrockRecommendation.builder()
                     .ruleId(rule.getId())
@@ -163,7 +145,6 @@ public class HtmlReportGenerator {
                 String htmlContent = escapeHtml(truncateText(node.getHtml(), 200));
                 String urlContent = truncateText(ruleEntry.getValue().toLowerCase(), 80);
                 
-                // Get screenshot for this URL
                 String screenshotPath = pageScreenshots.get(ruleEntry.getValue());
                 String screenshotHtml = "";
                 if (screenshotPath != null) {
