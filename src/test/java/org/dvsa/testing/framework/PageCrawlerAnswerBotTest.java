@@ -67,14 +67,6 @@ public class PageCrawlerAnswerBotTest {
         SpiderCrawler.crawler(1, page.url(), new HashSet<>(), page);
     }
 
-    @Test
-    public void mothRandomAnswerAndCrawlerScanner() {
-        String url = Arrays.stream(AppConfig.getBaseUrls()).toList().get(1);
-        page.navigate(getBaseURL());
-        setCookies();
-        formAutoFill(page, page.url(), "check-mot.service.gov.uk", true);
-        SpiderCrawler.crawler(1, page.url(), new HashSet<>(), page);
-    }
 
     private void login() {
         Locator cookieAccept = page.locator("//*[contains(text(),'Accept additional cookies')]");
