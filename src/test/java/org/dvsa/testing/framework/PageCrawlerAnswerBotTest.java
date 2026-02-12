@@ -2,20 +2,19 @@ package org.dvsa.testing.framework;
 
 import com.microsoft.playwright.*;
 import com.microsoft.playwright.options.Cookie;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 import org.dvsa.testing.framework.config.AppConfig;
-import org.dvsa.testing.framework.axe.AXEScanner;
 import org.dvsa.testing.framework.browser.PlayWrightManager;
 import org.dvsa.testing.framework.jsoup.SpiderCrawler;
+
 import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.Test;
 
-import java.io.IOException;
-import java.util.HashSet;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 
+import static org.dvsa.testing.framework.axe.AXEScanner.generateFinalReport;
 import static org.dvsa.testing.framework.axe.AXEScanner.getAllViolations;
 import static org.dvsa.testing.framework.bots.AnswerBot.formAutoFill;
 import static org.dvsa.testing.framework.otp.Generator.generatePin;
@@ -23,6 +22,7 @@ import static org.dvsa.testing.framework.otp.Generator.generatePin;
 
 public class PageCrawlerAnswerBotTest {
 
+    private static final Logger LOGGER = LogManager.getLogger(PageCrawlerAnswerBotTest.class);
 
     private String baseURL;
     private static Map<String, String> cookies;
@@ -58,24 +58,25 @@ public class PageCrawlerAnswerBotTest {
     }
 
     @Test
-    public void mtsRandomAnswerAndCrawlerScanner() throws IOException {
-        setBaseURL(AppConfig.getString("mtsBaseURL"));
-        page.navigate(getBaseURL());
-        Page page = login();
-        formAutoFill(page, page.url(), "mot-testing.service.gov.uk", true);
+    public void mtsRandomAnswerAndCrawlerScanner() {
+        String[] urls = AppConfig.getBaseUrls();
+        String url = urls[1];
+        page.navigate(url);
+        login();
+        formAutoFill(page, page.url(), AppConfig.getString("domain"), true);
         SpiderCrawler.crawler(1, page.url(), new HashSet<>(), page);
     }
 
-//    @Test
+    @Test
     public void mothRandomAnswerAndCrawlerScanner() {
-        setBaseURL(AppConfig.getString("mothBaseURL"));
+        String url = Arrays.stream(AppConfig.getBaseUrls()).toList().get(1);
         page.navigate(getBaseURL());
         setCookies();
         formAutoFill(page, page.url(), "check-mot.service.gov.uk", true);
         SpiderCrawler.crawler(1, page.url(), new HashSet<>(), page);
     }
 
-    private Page login() {
+    private void login() {
         Locator cookieAccept = page.locator("//*[contains(text(),'Accept additional cookies')]");
         Locator usernameInput = page.locator("input[id='username']");
         Locator passwordInput = page.locator("input[id='password']");
@@ -107,13 +108,11 @@ public class PageCrawlerAnswerBotTest {
         }
 
         setCookies();
-        return page;
     }
 
     private static void setCookies() {
         List<Cookie> playwrightCookies = page.context().cookies();
         Map<String, String> jsoupCookies = new HashMap<>();
-
         for (Cookie cookie : playwrightCookies) {
             jsoupCookies.put(cookie.name, cookie.value);
         }
@@ -121,8 +120,14 @@ public class PageCrawlerAnswerBotTest {
     }
 
     @AfterAll
-    public static void testAfter() throws Exception {
-        new AXEScanner().generateFinalReport();
-        browserManager.closeBrowserAndPage();
+    public static void testAfter() {
+        try {
+            LOGGER.info("Starting AI-backed accessibility analysis...");
+            generateFinalReport();
+        } catch (Exception e) {
+            LOGGER.error("AI Analysis failed: {}", e.getMessage());
+        } finally {
+            browserManager.closeBrowserAndPage();
+        }
     }
 }

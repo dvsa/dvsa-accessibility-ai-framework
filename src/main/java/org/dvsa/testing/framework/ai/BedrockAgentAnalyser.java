@@ -1,10 +1,12 @@
 package org.dvsa.testing.framework.ai;
 
 import com.deque.html.axecore.results.Rule;
-import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.dvsa.testing.framework.jsoup.GovUkScraper;
+import org.dvsa.testing.framework.utils.AccessibilityMapper;
 import org.json.JSONArray;
 import org.json.JSONObject;
 import software.amazon.awssdk.auth.credentials.DefaultCredentialsProvider;
@@ -26,282 +28,205 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
 
-
 public class BedrockAgentAnalyser {
     private static final Logger LOGGER = LogManager.getLogger(BedrockAgentAnalyser.class);
+    private final GovUkScraper scraper = new GovUkScraper();
+    private final HttpClient client = HttpClient.newHttpClient();
+
     private final String bedrockRegion;
-    private final String bedrockAgentId;
-    private final String bedrockAgentAliasId;
-    private HttpClient client;
-    private final ObjectMapper MAPPER = new ObjectMapper();
+    private final String agentId;
+    private final String agentAliasId;
 
-    public BedrockAgentAnalyser(HttpClient client) {
+    public BedrockAgentAnalyser() {
         this.bedrockRegion = org.dvsa.testing.framework.config.AppConfig.getString("bedrock.region", "eu-west-2");
-        this.bedrockAgentId = org.dvsa.testing.framework.config.AppConfig.getString("bedrock.agent.id");
-        this.bedrockAgentAliasId = org.dvsa.testing.framework.config.AppConfig.getString("bedrock.agent.alias.id");
-        this.client = Objects.requireNonNull(client);
+        this.agentId = org.dvsa.testing.framework.config.AppConfig.getString("bedrock.agent.id");
+        this.agentAliasId = org.dvsa.testing.framework.config.AppConfig.getString("bedrock.agent.alias.id");
     }
 
-    public List<BedrockRecommendation> analyseViolationsWithBedrock(
-            ConcurrentHashMap<Rule, String> violations,
-            Map<String, BedrockRecommendation> kbMap
-    ) throws Exception {
+    public Map<String, BedrockRecommendation> analyseViolations(ConcurrentHashMap<Rule, String> violations) throws Exception {
+        LOGGER.info("Starting chunked analysis for {} violations", violations.size());
 
-        List<BedrockRecommendation> allRecommendations = new ArrayList<>();
+        Map<String, BedrockRecommendation> finalMap = new HashMap<>();
+        String liveContext = buildScrapedContext(violations);
 
-        String violationsJson = convertViolationsToJsonArray(violations);
+        List<Map.Entry<Rule, String>> violationList = new ArrayList<>(violations.entrySet());
+        int chunkSize = 3;
 
-        JSONObject promptJson = new JSONObject();
-        promptJson.put(
-                "inputText",
-                "You are an accessibility expert. Produce ONLY valid JSON. " +
-                        "Return a STRICT JSON array of objects, each with exactly these fields: " +
-                        "{\"ruleId\":\"...\",\"issue\":\"...\",\"recommendation\":\"...\",\"reference\":\"...\",\"exampleFix\":\"...\"}. " +
-                        "Do NOT include any text outside the array. Escape all HTML quotes in exampleFix. " +
-                        "If uncertain, return an empty JSON array []."
+        for (int i = 0; i < violationList.size(); i += chunkSize) {
+            int end = Math.min(i + chunkSize, violationList.size());
+            List<Map.Entry<Rule, String>> chunk = violationList.subList(i, end);
+
+            LOGGER.info("Processing chunk {}/{} (Violations {}-{})",
+                    (i / chunkSize) + 1, (int) Math.ceil((double) violationList.size() / chunkSize), i + 1, end);
+
+            String chunkJson = formatChunkAsJson(chunk);
+            String finalPrompt = String.format(
+                    """
+                            SYSTEM: You are a GOV.UK Accessibility Auditor. You must fix violations using GOV.UK Design System patterns.
+                            USER: Fix these violations.\s
+                            
+                            MANDATORY OUTPUT RULES:
+                            1. Every item MUST have an 'example' field containing a GDS HTML snippet (e.g. using 'govuk-' classes).
+                            2. If the GDS context doesn't mention the specific rule, use your general knowledge of GOV.UK components (Buttons, Inputs, Headings) to provide the fix.
+                            3. Return ONLY a valid JSON array.
+                            
+                            ### GDS CONTEXT:
+                            %s
+                            
+                            ### VIOLATIONS:
+                            %s
+                            """,
+                    liveContext, chunkJson
+            );
+
+            try {
+                // Invoke the AI
+                String rawResponse = invokeAgentViaRest(new JSONObject().put("inputText", finalPrompt));
+                List<BedrockRecommendation> recs = parseResponse(rawResponse);
+
+                for (int j = 0; j < recs.size(); j++) {
+                    if (j >= chunk.size()) break;
+
+                    String ruleId = chunk.get(j).getKey().getId();
+                    BedrockRecommendation rec = recs.get(j);
+
+                    finalMap.put(ruleId, BedrockRecommendation.builder()
+                            .ruleId(ruleId)
+                            .issue(rec.issue())
+                            .recommendation(rec.recommendation())
+                            .reference(rec.reference())
+                            .example(rec.example())
+                            .build());
+                }
+
+                if (end < violationList.size()) {
+                    LOGGER.info("Chunk complete. Sleeping for 1500ms to prevent rate limiting...");
+                    Thread.sleep(1500);
+                }
+
+            } catch (Exception e) {
+                LOGGER.error("Error processing violation chunk starting at index {}: {}", i, e.getMessage());
+            }
+        }
+
+        return finalMap;
+    }
+
+
+    private String formatChunkAsJson(List<Map.Entry<Rule, String>> chunk) {
+        JSONArray array = new JSONArray();
+        for (Map.Entry<Rule, String> entry : chunk) {
+            JSONObject obj = new JSONObject();
+            obj.put("ruleId", entry.getKey().getId());
+            obj.put("description", entry.getKey().getDescription());
+            obj.put("htmlSnippet", entry.getValue()); // This is the failing HTML
+            array.put(obj);
+        }
+        return array.toString();
+    }
+
+    private List<BedrockRecommendation> parseResponse(String rawResponse) {
+        if (!rawResponse.trim().startsWith("[") && !rawResponse.trim().startsWith("{")) {
+            return fallbackRegexParse(rawResponse);
+        }
+
+        try {
+            ObjectMapper mapper = new ObjectMapper();
+            return mapper.readValue(rawResponse, new TypeReference<List<BedrockRecommendation>>() {});
+        } catch (Exception e) {
+            return fallbackRegexParse(rawResponse);
+        }
+    }
+
+    private List<BedrockRecommendation> fallbackRegexParse(String text) {
+        List<BedrockRecommendation> recs = new ArrayList<>();
+
+        Pattern plainTextPattern = Pattern.compile(
+                "(?i)Issue:\\s*(.*?)\\s*Recommendation:\\s*(.*?)\\s*Reference:\\s*(.*?)\\s*Example:\\s*(.*?)(?=Issue:|$)",
+                Pattern.DOTALL
         );
-        promptJson.put("violations", new JSONArray(violationsJson));
 
-        LOGGER.info("Sending to Bedrock: {}", promptJson.toString());
+        Matcher m = plainTextPattern.matcher(text);
 
-        String agentResponse = invokeAgentViaRest(promptJson);
-        LOGGER.info("Raw Bedrock response: {}", agentResponse);
-
-        if (agentResponse == null || agentResponse.trim().isEmpty()) {
-            LOGGER.warn("Empty response from Bedrock");
-            return allRecommendations;
+        while (m.find()) {
+            recs.add(BedrockRecommendation.builder()
+                    .issue(m.group(1).trim())
+                    .recommendation(m.group(2).trim())
+                    .reference(m.group(3).trim())
+                    .example(m.group(4).trim())
+                    .build());
         }
 
-
-        try {
-            JsonNode root = MAPPER.readTree(agentResponse);
-
-            if (root.isArray()) {
-                for (JsonNode node : root) {
-                    BedrockRecommendation rec = parseNodeRecommendation(node, kbMap);
-                    if (rec != null) allRecommendations.add(rec);
-                }
-            } else if (root.isObject()) {
-                JsonNode recsNode = root.has("recommendations") ? root.get("recommendations") : root;
-                if (recsNode.isArray()) {
-                    for (JsonNode node : recsNode) {
-                        BedrockRecommendation rec = parseNodeRecommendation(node, kbMap);
-                        if (rec != null) allRecommendations.add(rec);
-                    }
-                }
-            }
-
-        } catch (Exception e) {
-            LOGGER.warn("Bedrock JSON invalid/truncated; falling back to text parser", e);
-
-            String[] issues = agentResponse.split("(?=\\s*Issue:)");
-            for (String issueText : issues) {
-                BedrockRecommendation rec = parseTextRecommendation(issueText, kbMap);
-                if (rec != null) {
-                    allRecommendations.add(rec);
-                }
+        if (recs.isEmpty()) {
+            Pattern jsonPattern = Pattern.compile("\"issue\":\\s*\"(.*?)\",\\s*\"recommendation\":\\s*\"(.*?)\"", Pattern.DOTALL);
+            Matcher m2 = jsonPattern.matcher(text);
+            while (m2.find()) {
+                recs.add(BedrockRecommendation.builder().issue(m2.group(1)).recommendation(m2.group(2)).build());
             }
         }
 
-        return allRecommendations.stream()
-                .filter(Objects::nonNull)
-                .peek(rec -> LOGGER.debug("Returning recommendation for rule: {}", rec.ruleId()))
-                .collect(Collectors.toList());
+        return recs;
     }
 
-
-    private BedrockRecommendation parseTextRecommendation(String text, Map<String, BedrockRecommendation> kbMap) {
-        if (text == null || text.isBlank()) return null;
-
-        BedrockRecommendation.Builder builder = BedrockRecommendation.builder()
-                .ruleId("UNKNOWN_RULE")
-                .issue(text.trim())
-                .recommendation("Review and fix based on the issue text.")
-                .reference("")
-                .example("");
-
-        // Try to detect ruleId from text or default to "UNKNOWN_RULE"
-        kbMap.forEach((ruleId, kbRec) -> {
-            if (text.toLowerCase().contains(ruleId.toLowerCase())) {
-                builder.ruleId(ruleId)
-                        .recommendation(kbRec.recommendation())
-                        .reference(kbRec.reference())
-                        .example(kbRec.example());
-            }
-        });
-
-        return builder.build();
+    private String buildScrapedContext(ConcurrentHashMap<Rule, String> violations) {
+        return violations.keySet().stream()
+                .flatMap(rule -> AccessibilityMapper.mapAxeRuleToGovPaths(rule.getId()).stream())
+                .distinct()
+                .map(path -> "### " + path.toUpperCase() + "\n" + scraper.getLiveGuidance(path))
+                .collect(Collectors.joining("\n\n"));
     }
 
-    private BedrockRecommendation parseNodeRecommendation(JsonNode node, Map<String, BedrockRecommendation> kbMap) {
-        if (node == null) return null;
-        try {
-            BedrockRecommendation rec;
-            if (node.has("ruleId")) {
-                rec = MAPPER.treeToValue(node, BedrockRecommendation.class);
-            } else if (node.has("text")) {
-                rec = parseTextRecommendation(node.get("text").asText(), kbMap);
-            } else {
-                rec = parseTextRecommendation(node.toString(), kbMap);
-            }
-
-            if (rec != null && rec.ruleId() != null && kbMap.containsKey(rec.ruleId())) {
-                BedrockRecommendation kbRec = kbMap.get(rec.ruleId());
-                BedrockRecommendation.Builder builder = BedrockRecommendation.builder()
-                        .ruleId(rec.ruleId())
-                        .recommendation((rec.recommendation() == null || rec.recommendation().isBlank()) ? kbRec.recommendation() : rec.recommendation())
-                        .reference((rec.reference() == null || rec.reference().isBlank()) ? kbRec.reference() : rec.reference())
-                        .example((rec.example() == null || rec.example().isBlank()) ? kbRec.example() : rec.example())
-                        .issue(rec.issue())
-                        .rawText(rec.rawText());
-                return builder.build();
-            }
-            return rec;
-        } catch (Exception e) {
-            LOGGER.warn("Failed to parse node into BedrockRecommendation; using text fallback", e);
-            return parseTextRecommendation(node.toString(), kbMap);
-        }
-    }
-
-    private String convertViolationsToJsonArray(ConcurrentHashMap<Rule, String> violations) {
-        return new JSONArray(
-                violations.entrySet().stream()
-                        .map(e -> {
-                            String originalId = e.getKey().getId();
-                            String normalisedId = normaliseRuleId(originalId);
-                            LOGGER.debug("Converting rule {} -> {} for Bedrock", originalId, normalisedId);
-                            return new JSONObject()
-                                    .put("ruleId", normalisedId)
-                                    .put("violation", e.getValue());
-                        })
-                .toList()
-        ).toString();
-    }
-
-    private String normaliseRuleId(String ruleId) {
-        return switch (ruleId) {
-            case "image-alt" -> "AXE_IMAGE_ALT_NOT_REPEATED";
-            case "heading-order" -> "AXE_HEADING_ORDER";
-            case "banner", "landmark-no-duplicate-banner" -> "AXE_ONE_BANNER_LANDMARK";
-            case "landmark-unique" -> "AXE_LANDMARKS_UNIQUE";
-            case "region" -> "AXE_CONTENT_WITHIN_LANDMARKS";
-            case "empty-heading", "heading-disorder", "empty-table-header" -> "AXE_HEADING_DISCERNIBLE_TEXT";
-            case "landmark-one-main", "main-role" -> "AXE_MAIN_LANDMARK";
-            case "label" -> "AXE_FORM_LABELS";
-            case "target-size" -> "AXE_TOUCH_TARGETS";
-            case "aria-allowed-attr" -> "AXE_ROLE_ARIA_ATTRIBUTES";
-            case "aria-hidden-focus" -> "AXE_ARIA_HIDDEN_FOCUSABLE";
-            case "color-contrast" -> "AXE_COLOR_CONTRAST";
-            default -> ruleId;
-        };
-    }
 
     private String invokeAgentViaRest(JSONObject promptJson) throws Exception {
         String sessionId = "session-" + UUID.randomUUID();
         String endpoint = String.format(
-            "https://bedrock-agent-runtime.%s.amazonaws.com/agents/%s/agentAliases/%s/sessions/%s/text",
-            bedrockRegion, bedrockAgentId, bedrockAgentAliasId, sessionId
+                "https://bedrock-agent-runtime.%s.amazonaws.com/agents/%s/agentAliases/%s/sessions/%s/text",
+                bedrockRegion, agentId, agentAliasId, sessionId
         );
 
         SdkHttpFullRequest sdkRequest = SdkHttpFullRequest.builder()
                 .method(SdkHttpMethod.POST)
                 .uri(URI.create(endpoint))
                 .appendHeader("Content-Type", "application/json")
-                .contentStreamProvider(() ->
-                        new ByteArrayInputStream(promptJson.toString().getBytes(StandardCharsets.UTF_8)))
+                .contentStreamProvider(() -> new ByteArrayInputStream(promptJson.toString().getBytes(StandardCharsets.UTF_8)))
                 .build();
 
         Aws4Signer signer = Aws4Signer.create();
-
-        SdkHttpFullRequest signed = signer.sign(
-                sdkRequest,
-                Aws4SignerParams.builder()
-                    .signingRegion(Region.of(bedrockRegion))
-                    .signingName("bedrock")
-                    .awsCredentials(DefaultCredentialsProvider.create().resolveCredentials())
-                    .build()
-        );
+        SdkHttpFullRequest signed = signer.sign(sdkRequest, Aws4SignerParams.builder()
+                .signingRegion(Region.of(bedrockRegion))
+                .signingName("bedrock")
+                .awsCredentials(DefaultCredentialsProvider.create().resolveCredentials())
+                .build());
 
         HttpRequest.Builder builder = HttpRequest.newBuilder()
                 .uri(URI.create(endpoint))
                 .POST(HttpRequest.BodyPublishers.ofString(promptJson.toString()));
 
         List<String> restricted = List.of("host", "content-length", "transfer-encoding", "expect", "connection");
-
-        for (var e : signed.headers().entrySet()) {
-            if (!restricted.contains(e.getKey().toLowerCase())) {
-                e.getValue().forEach(v -> builder.header(e.getKey(), v));
+        signed.headers().forEach((k, v) -> {
+            if (!restricted.contains(k.toLowerCase())) {
+                v.forEach(val -> builder.header(k, val));
             }
-        }
+        });
 
-        HttpRequest request = builder.build();
-        client = HttpClient.newHttpClient();
-
-        HttpResponse<String> response =
-                client.send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+        HttpResponse<String> response = client.send(builder.build(), HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
 
         if (response.statusCode() != 200) {
-            throw new RuntimeException(
-                    "Bedrock agent call failed [" + response.statusCode() + "]: " + response.body());
+            throw new RuntimeException("Bedrock call failed [" + response.statusCode() + "]: " + response.body());
         }
 
-        String responseBody = response.body();
-        LOGGER.debug("Raw Bedrock response: {}", responseBody);
-        
-        String decoded;
-        try {
-            decoded = decodeEventStreamResponse(responseBody.getBytes(StandardCharsets.UTF_8));
-            LOGGER.debug("Decoded as event stream: {}", decoded);
-        } catch (Exception e) {
-            LOGGER.debug("Event stream decode failed, trying direct JSON: {}", e.getMessage());
-            decoded = responseBody;
-        }
-
-        String cleaned = decoded.trim();
-        if (cleaned.startsWith("[[")) {
-            cleaned = cleaned.substring(1, cleaned.length() - 1);
-        }
-        cleaned = cleaned.replaceAll("(\\r|\\n){2,}", "\n").trim();
-
-        LOGGER.debug("Final cleaned JSON: {}", cleaned);
-        return cleaned;
+        return decodeEventStreamResponse(response.body().getBytes(StandardCharsets.UTF_8));
     }
 
     private String decodeEventStreamResponse(byte[] responseBytes) {
         String raw = new String(responseBytes, StandardCharsets.UTF_8);
-        
-        try {
-            JsonNode testNode = MAPPER.readTree(raw);
-            if (testNode.isArray() || testNode.isObject()) {
-                LOGGER.debug("Response is direct JSON");
-                return raw;
-            }
-        } catch (Exception e) {
-            LOGGER.debug("Not direct JSON, trying event stream parsing");
-        }
-        
         Pattern base64Pattern = Pattern.compile("\"bytes\"\\s*:\\s*\"([A-Za-z0-9+/=]+)\"");
         Matcher matcher = base64Pattern.matcher(raw);
 
-        List<String> decodedChunks = new ArrayList<>();
+        StringBuilder sb = new StringBuilder();
         while (matcher.find()) {
-            try {
-                String inner = new String(Base64.getDecoder().decode(matcher.group(1)), StandardCharsets.UTF_8).trim();
-                if (inner.startsWith("{") || inner.startsWith("[")) {
-                    decodedChunks.add(inner);
-                } else {
-                    inner = inner.replace("\"", "\\\"").replace("\n", " ");
-                    decodedChunks.add("{\"recommendation\":\"" + inner + "\"}");
-                }
-            } catch (Exception e) {
-                LOGGER.warn("Failed to decode Base64 chunk: {}", e.getMessage());
-            }
+            sb.append(new String(Base64.getDecoder().decode(matcher.group(1)), StandardCharsets.UTF_8));
         }
-
-        if (decodedChunks.isEmpty()) {
-            LOGGER.warn("No Base64 payloads found; returning raw response");
-            return raw;
-        }
-        return "[" + String.join(",", decodedChunks) + "]";
+        return !sb.isEmpty() ? sb.toString() : raw;
     }
 }

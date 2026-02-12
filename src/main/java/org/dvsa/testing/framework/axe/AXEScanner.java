@@ -4,17 +4,14 @@ import com.deque.html.axecore.playwright.AxeBuilder;
 
 import com.deque.html.axecore.results.AxeResults;
 import com.deque.html.axecore.results.Rule;
-import com.fasterxml.jackson.core.JsonProcessingException;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.microsoft.playwright.Page;
+import com.microsoft.playwright.options.LoadState;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.dvsa.testing.framework.ai.BedrockAgentAnalyser;
-import org.dvsa.testing.framework.mcp.integration.McpEnhancedBedrockAnalyser;
 import org.dvsa.testing.framework.ai.BedrockRecommendation;
 
 import java.io.*;
-import java.net.http.HttpClient;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -22,7 +19,6 @@ import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
-import java.util.stream.Collectors;
 
 import static org.dvsa.testing.framework.axe.HtmlReportGenerator.generateHtmlReport;
 
@@ -31,8 +27,6 @@ public class AXEScanner {
     private static final Logger LOGGER = LogManager.getLogger(AXEScanner.class);
     private static final ConcurrentHashMap<Rule, String> allViolations = new ConcurrentHashMap<>();
     private static final ConcurrentHashMap<String, String> pageScreenshots = new ConcurrentHashMap<>(); // URL -> screenshot path
-    private static final HttpClient client = HttpClient.newHttpClient();
-    private static final ObjectMapper MAPPER = new ObjectMapper();
 
     public AXEScanner() throws Exception {
     }
@@ -42,42 +36,65 @@ public class AXEScanner {
                 .map(Collections::singletonList)
                 .orElse(List.of("wcag22a", "wcag22aa", "wcag412", "wcag143", "cat.**", "best-practice"));
 
-        AxeResults axeResponse = new AxeBuilder(page)
-                .withTags(tags)
-                .analyze();
+        try {
+            page.waitForLoadState(LoadState.DOMCONTENTLOADED);
+            page.waitForTimeout(500); // 500ms "settle" time to allow JS context to stabilize
 
-        if (axeResponse.getViolations().isEmpty()) {
-            LOGGER.info("No accessibility issues found.");
-        } else {
-            LOGGER.info("Found {} {} ", axeResponse.getViolations().size(), " accessibility issues.");
-            LOGGER.info("Issue founds {} ", axeResponse.getViolations());
-            
             String currentUrl = page.url();
-            if (!pageScreenshots.containsKey(currentUrl)) {
-                String screenshotPath = captureScreenshot(page, currentUrl);
-                if (screenshotPath != null) {
-                    pageScreenshots.put(currentUrl, screenshotPath);
-                    LOGGER.info("Screenshot captured for {}: {}", currentUrl, screenshotPath);
+
+            if (currentUrl == null || currentUrl.startsWith("about:") || currentUrl.isEmpty()) {
+                LOGGER.warn("Skipping scan: Invalid page state ({})", currentUrl);
+                return;
+            }
+
+            AxeResults axeResponse;
+            int retries = 3;
+            while (true) {
+                try {
+                    axeResponse = new AxeBuilder(page)
+                            .withTags(tags)
+                            .analyze();
+                    break;
+                } catch (RuntimeException e) {
+                    if (e.getMessage().contains("unable to inject") && --retries > 0) {
+                        LOGGER.warn("Axe injection failed. Retrying in 1s... (Attempts left: {})", retries);
+                        page.waitForTimeout(1000);
+                    } else {
+                        throw e;
+                    }
                 }
             }
-            
-            for (Rule rule : axeResponse.getViolations()) {
-                    allViolations.putIfAbsent(rule, page.url());
+
+            if (axeResponse != null && !axeResponse.getViolations().isEmpty()) {
+                if (!pageScreenshots.containsKey(currentUrl)) {
+                    String filename = captureScreenshot(page, currentUrl);
+                    if (filename != null) {
+                        pageScreenshots.put(currentUrl, filename);
+                        LOGGER.info("Saved page screenshot for URL: {}", currentUrl);
+                    }
+                }
+
+                for (Rule rule : axeResponse.getViolations()) {
+                    allViolations.put(rule, currentUrl);
+                }
+            } else {
+                LOGGER.info("No violations found on {}", currentUrl);
             }
+
+        } catch (Exception e) {
+            LOGGER.error("Accessibility scan failed on {}: {}", page.url(), e.getMessage());
         }
     }
 
     public static ConcurrentHashMap<Rule, String> getAllViolations() {
         return allViolations;
     }
-    
+
     public static ConcurrentHashMap<String, String> getPageScreenshots() {
         return pageScreenshots;
     }
-    
-    /**
-     * Capture a full page screenshot for accessibility violations
-     */
+
+
     private static String captureScreenshot(Page page, String url) {
         try {
             String screenshotDir = "target/reports/screenshots/";
@@ -86,106 +103,80 @@ public class AXEScanner {
                 Files.createDirectories(dirPath);
                 LOGGER.info("Created screenshot directory: {}", screenshotDir);
             }
-            
+
             String timestamp = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd-HH-mm-ss"));
             String sanitizedUrl = url.replaceAll("[^a-zA-Z0-9.-]", "_")
                     .replaceAll("_{2,}", "_")
                     .substring(0, Math.min(50, url.length()));
             String filename = timestamp + "_" + sanitizedUrl + ".png";
             String fullPath = screenshotDir + filename;
-            
+
             page.screenshot(new Page.ScreenshotOptions()
                     .setPath(Paths.get(fullPath))
                     .setFullPage(true));
-            
+
             return filename;
-            
+
         } catch (Exception e) {
             LOGGER.error("Failed to capture screenshot for {}: {}", url, e.getMessage());
             return null;
         }
     }
 
-    public void generateFinalReport() {
+    public static void generateFinalReport() {
         if (allViolations.isEmpty()) {
             LOGGER.info("No accessibility issues found; skipping report generation.");
             return;
         }
 
         try {
-            LOGGER.info("Generating report with Bedrock recommendations...");
+            LOGGER.info("Generating report with Bedrock recommendations & Live Scraped Context...");
 
-            BedrockAgentAnalyser analyser = new McpEnhancedBedrockAnalyser(client);
+            BedrockAgentAnalyser analyser = new BedrockAgentAnalyser();
 
-            // Knowledge base is stored in S3 and accessed by Bedrock agent
-            Map<String, BedrockRecommendation> emptyKbMap = new HashMap<>();
+            Map<String, BedrockRecommendation> recommendationMap = analyser.analyseViolations(allViolations);
 
-            List<BedrockRecommendation> recommendationsList =
-                    analyser.analyseViolationsWithBedrock(getAllViolations(), emptyKbMap);
-
-            if (recommendationsList == null || recommendationsList.isEmpty()) {
-                LOGGER.warn("No AI recommendations received from Bedrock. Generating basic report...");
+            if (recommendationMap == null || recommendationMap.isEmpty()) {
+                LOGGER.warn("No AI recommendations received from Bedrock. Falling back to basic report.");
                 generateBasicReport();
                 return;
             }
 
-            recommendationsList = recommendationsList.stream()
-                    .filter(Objects::nonNull)
-                    .collect(Collectors.toList());
+            LOGGER.info("DEBUG: Keys in Bedrock Map: {}", recommendationMap.keySet());
+            LOGGER.info("DEBUG: Keys in Violations Map: {}", allViolations.keySet().stream().map(Rule::getId).toList());
 
-            if (recommendationsList.isEmpty()) {
-                LOGGER.warn("All Bedrock recommendations were null. Generating basic report...");
-                generateBasicReport();
-                return;
-            }
+            String htmlContent = HtmlReportGenerator.generateHtmlReport(
+                    allViolations,
+                    recommendationMap,
+                    new HashMap<>(),
+                    pageScreenshots
+            );
 
-            Map<String, BedrockRecommendation> recommendationMap = recommendationsList.stream()
-                    .filter(r -> r.ruleId() != null && !r.ruleId().isBlank())
-                    .collect(Collectors.toMap(
-                            BedrockRecommendation::ruleId,
-                            r -> r,
-                            (r1, r2) -> r1 
-                    ));
-
-            if (recommendationMap.isEmpty()) {
-                LOGGER.warn("No valid AI recommendations with ruleId found. Generating basic report...");
-                generateBasicReport();
-                return;
-            }
-
-            String htmlContent = generateHtmlReport(getAllViolations(), recommendationMap, emptyKbMap, getPageScreenshots());
             bufferedFileWriter(htmlContent);
 
-            LOGGER.info("Accessibility report generated successfully with AI recommendations.");
+            LOGGER.info("Accessibility report generated successfully with live scraped AI guidance.");
 
-        } catch (JsonProcessingException e) {
-            LOGGER.error(" Failed to parse Bedrock recommendations JSON", e);
-            LOGGER.debug("Raw JSON received: {}", e.getMessage());
-            LOGGER.info("Generating basic report due to Bedrock JSON parsing error...");
-            generateBasicReport();
         } catch (Exception e) {
-            LOGGER.error("Unexpected error while generating report", e);
-            LOGGER.info("Generating basic report due to Bedrock error...");
+            LOGGER.error("Failed to generate AI report: {}", e.getMessage(), e);
             generateBasicReport();
         }
     }
 
-   
-    private void generateBasicReport() {
+    static void generateBasicReport() {
         try {
             Map<String, BedrockRecommendation> emptyRecommendations = new HashMap<>();
             Map<String, BedrockRecommendation> emptyKbMap = new HashMap<>();
-            
+
             String htmlContent = generateHtmlReport(getAllViolations(), emptyRecommendations, emptyKbMap, getPageScreenshots());
             bufferedFileWriter(htmlContent);
-            
+
             LOGGER.info("Basic accessibility report generated successfully (without AI recommendations).");
         } catch (Exception e) {
             LOGGER.error("Failed to generate basic report", e);
         }
     }
 
-    public void bufferedFileWriter(String content) {
+    static void bufferedFileWriter(String content) {
         String dateTime = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd-HH:mm:ss-"));
         String fileName = "accessibility.html";
         String folderName = "target/reports/";

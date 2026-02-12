@@ -3,6 +3,7 @@
 target
 *.conf
 *.iml
-src/test/resources/*.conf
+src/test/resources/*.properties
 *.html
 .DS_Store
+.m2_classpath

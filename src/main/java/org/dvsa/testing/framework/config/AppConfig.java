@@ -2,12 +2,13 @@ package org.dvsa.testing.framework.config;
 
 import java.io.IOException;
 import java.io.InputStream;
+import java.util.Arrays;
 import java.util.Properties;
 
 
 public class AppConfig {
     private static final Properties properties = new Properties();
-    
+
     static {
         loadProperties();
     }
@@ -29,6 +30,19 @@ public class AppConfig {
     
     public static String getString(String key, String defaultValue) {
         return properties.getProperty(key, defaultValue);
+    }
+
+    public static String[] getBaseUrls() {
+        String rawUrls = properties.getProperty("baseURLs");
+
+        if (rawUrls == null || rawUrls.trim().isEmpty()) {
+            return new String[0];
+        }
+
+        return Arrays.stream(rawUrls.split(","))
+                .map(String::trim)
+                .filter(url -> !url.isEmpty())
+                .toArray(String[]::new);
     }
     
     public static boolean getBoolean(String key, boolean defaultValue) {
