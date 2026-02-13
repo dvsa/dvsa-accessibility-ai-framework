@@ -24,7 +24,6 @@ public class PlayWrightManager {
         };
 
         browser = browserType.launch(new BrowserType.LaunchOptions().setHeadless(headlessMode));
-        // New instance for each test method.
         BrowserContext context = browser.newContext();
         page = context.newPage();
     }
