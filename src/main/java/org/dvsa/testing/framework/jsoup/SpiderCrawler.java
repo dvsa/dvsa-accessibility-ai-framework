@@ -2,6 +2,7 @@ package org.dvsa.testing.framework.jsoup;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.dvsa.testing.framework.axe.AXEScanner;
 import org.dvsa.testing.framework.utils.DomainValidator;
 import org.jsoup.Jsoup;
 import org.jsoup.nodes.Document;
@@ -9,12 +10,11 @@ import org.jsoup.nodes.Element;
 import com.microsoft.playwright.Page;
 import com.microsoft.playwright.options.LoadState;
 import com.microsoft.playwright.options.WaitUntilState;
+import org.openqa.selenium.WebDriver;
 
 import java.net.URI;
 import java.util.*;
 import java.util.regex.Pattern;
-
-import static org.dvsa.testing.framework.axe.AXEScanner.scan;
 
 
 public class SpiderCrawler {
@@ -34,18 +34,16 @@ public class SpiderCrawler {
     );
 
 
-    public static void crawler(int level, String url, Set<String> visited, Page page) {
+    public static void crawler(int level, String url, Set<String> visited, Object driver) {
         String baseDomain = DomainValidator.extractDomain(url);
         if (baseDomain == null) {
             LOGGER.error("Cannot extract domain from starting URL: {}", url);
             return;
         }
-
-        crawlerWithDomain(level, url, visited, page, baseDomain, false);
+        crawlerWithDomain(level, url, visited, driver, baseDomain, false);
     }
 
-
-    public static void crawlerWithDomain(int level, String url, Set<String> visited, Page page, String baseDomain, boolean allowSubdomains) {
+    public static void crawlerWithDomain(int level, String url, Set<String> visited, Object driver, String baseDomain, boolean allowSubdomains) {
         if (level >= MAX_CRAWL_DEPTH || visited.size() >= MAX_URLS_PER_DOMAIN) {
             return;
         }
@@ -56,41 +54,45 @@ public class SpiderCrawler {
             return;
         }
 
-        page.context().onPage(newPage -> {
-            try {
-                newPage.waitForLoadState(LoadState.DOMCONTENTLOADED);
-                String newTabUrl = newPage.url();
-                if (!DomainValidator.isSameDomain(newTabUrl, baseDomain, allowSubdomains)) {
-                    LOGGER.warn("Closing unauthorized external popup: {}", newTabUrl);
-                    newPage.close();
-                }
-            } catch (Exception e) {
-                LOGGER.error("Error handling new page event", e);
-            }
-        });
-
         LOGGER.info("Crawling [Level {}]: {}", level, normalisedUrl);
 
         try {
-            page.navigate(normalisedUrl, new Page.NavigateOptions().setWaitUntil(WaitUntilState.LOAD));
+            String pageContent;
+            String actualUrl;
 
-            String currentUrl = page.url();
-            if (!DomainValidator.isSameDomain(currentUrl, baseDomain, allowSubdomains)) {
-                LOGGER.debug("Redirected outside domain scope: {}", currentUrl);
+            if (driver instanceof Page page) {
+                page.navigate(normalisedUrl, new Page.NavigateOptions().setWaitUntil(WaitUntilState.LOAD));
+                page.waitForLoadState(LoadState.DOMCONTENTLOADED);
+
+                page.evaluate("() => { document.querySelectorAll('a[target]').forEach(l => l.removeAttribute('target')); }");
+
+                actualUrl = page.url();
+                pageContent = page.content();
+
+            } else if (driver instanceof WebDriver seleniumDriver) {
+                seleniumDriver.get(normalisedUrl);
+                actualUrl = seleniumDriver.getCurrentUrl();
+                pageContent = seleniumDriver.getPageSource();
+            } else {
+                throw new IllegalArgumentException("Unsupported driver type provided to crawler");
+            }
+
+            if (!DomainValidator.isSameDomain(actualUrl, baseDomain, allowSubdomains)) {
+                LOGGER.debug("Redirected outside domain scope: {}", actualUrl);
                 return;
             }
 
-            page.evaluate("() => { document.querySelectorAll('a[target]').forEach(l => l.removeAttribute('target')); }");
+            AXEScanner.scan(driver);
 
-            scan(page);
-
-            Document doc = Jsoup.parse(page.content(), normalisedUrl);
+            assert pageContent != null;
+            assert actualUrl != null;
+            Document doc = Jsoup.parse(pageContent, actualUrl);
             var links = doc.select("a[href]");
 
             for (Element link : links) {
                 String nextUrl = link.absUrl("href");
                 if (shouldFollow(nextUrl, baseDomain, visited, allowSubdomains)) {
-                    crawlerWithDomain(level + 1, nextUrl, visited, page, baseDomain, allowSubdomains);
+                    crawlerWithDomain(level + 1, nextUrl, visited, driver, baseDomain, allowSubdomains);
                 }
             }
 
@@ -100,45 +102,34 @@ public class SpiderCrawler {
     }
 
     private static String normaliseUrl(String urlString) {
-        if (urlString == null || urlString.trim().isEmpty()) {
-            return "";
-        }
-
+        if (urlString == null || urlString.trim().isEmpty()) return "";
         try {
             URI uri = new URI(urlString.trim());
             String normalized = new URI(
                     uri.getScheme(),
                     uri.getAuthority(),
                     uri.getPath() != null ? uri.getPath() : "/",
-                    null,
-                    null
+                    null, null
             ).toString().toLowerCase();
 
             return normalized.endsWith("/") && normalized.length() > 1
                     ? normalized.substring(0, normalized.length() - 1)
                     : normalized;
-
         } catch (Exception e) {
-            LOGGER.debug("Failed to normalize URL: {}", urlString, e);
             return urlString.toLowerCase().trim();
         }
     }
 
     private static boolean shouldFollow(String url, String baseDomain, Set<String> visited, boolean allowSubdomains) {
-        if (url == null || url.trim().isEmpty()) return false;
-        if (!url.startsWith("http")) return false;
-
-        if (!DomainValidator.isSameDomain(url, baseDomain, allowSubdomains)) {
-            return false;
-        }
+        if (url == null || url.trim().isEmpty() || !url.startsWith("http")) return false;
+        if (!DomainValidator.isSameDomain(url, baseDomain, allowSubdomains)) return false;
 
         String normalized = normaliseUrl(url);
-        if (visited.contains(normalized)) {
-            return false;
-        }
+        if (visited.contains(normalized)) return false;
 
         String pathOnly = normalized.split("\\?")[0];
         if (EXCLUDE_PATTERN.matcher(pathOnly).matches()) return false;
+
         return !ACTION_PATTERN.matcher(normalized).matches();
     }
 }

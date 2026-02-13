@@ -2,106 +2,118 @@ package org.dvsa.testing.framework.bots;
 
 import com.microsoft.playwright.*;
 import com.microsoft.playwright.options.LoadState;
-import org.dvsa.testing.framework.config.AppConfig;
-import org.dvsa.testing.framework.utils.DomainValidator;
 import org.apache.commons.lang3.RandomStringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.dvsa.testing.framework.axe.AXEScanner;
+import org.dvsa.testing.framework.utils.DomainValidator;
+import org.dvsa.testing.framework.config.AppConfig;
+import org.openqa.selenium.By;
+import org.openqa.selenium.WebDriver;
+import org.openqa.selenium.WebElement;
 
-import java.io.IOException;
-import java.nio.file.Files;
-import java.nio.file.Paths;
-import java.util.ArrayList;
-import java.util.List;
+
+import java.util.*;
 import java.util.concurrent.ThreadLocalRandom;
-import java.util.stream.Collectors;
-
-import static org.dvsa.testing.framework.axe.AXEScanner.scan;
-import static org.dvsa.testing.framework.browser.PlayWrightWaits.waitAndEnterText;
-
 
 public class AnswerBot {
-    static List<ElementHandle> inputElements;
-
     private static final Logger LOGGER = LogManager.getLogger(AnswerBot.class);
 
-    public static void formAutoFill(Page page, String url, String baseDomain, boolean allowSubdomains) {
-        if (!DomainValidator.isSameDomain(url, baseDomain, allowSubdomains)) {
-            LOGGER.warn("Skipping form fill: URL {} is outside domain {}", url, baseDomain);
-            return;
+
+    public static void formAutoFill(Object driver, String url, String baseDomain, boolean allowSubdomains) {
+        if (driver instanceof Page page) {
+            runPlaywrightFormFill(page, url, baseDomain, allowSubdomains);
+        } else if (driver instanceof WebDriver seleniumDriver) {
+            runSeleniumFormFill(seleniumDriver, url, baseDomain, allowSubdomains);
         }
+    }
 
-        page.context().onPage(newPage -> {
-            try {
-                newPage.waitForLoadState(LoadState.DOMCONTENTLOADED);
-                if (!DomainValidator.isSameDomain(newPage.url(), baseDomain, allowSubdomains)) {
-                    LOGGER.info("Closing external popup: {}", newPage.url());
-                    newPage.close();
-                }
-            } catch (Exception e) {
-                LOGGER.info(e);
-            }
-        });
-
+    private static void runPlaywrightFormFill(Page page, String url, String baseDomain, boolean allowSubdomains) {
         try {
+            if (!DomainValidator.isSameDomain(url, baseDomain, allowSubdomains)) return;
+
             page.navigate(url);
             page.waitForLoadState(LoadState.LOAD);
-
             handleCookieBanners(page);
 
             int attempts = 0;
             int maxAttempts = 10;
 
-            while (true) {
-                if (!DomainValidator.isSameDomain(page.url(), baseDomain, allowSubdomains)) {
-                    LOGGER.warn("Redirected to external site {}. Aborting form fill.", page.url());
-                    return;
+            while (attempts < maxAttempts) {
+                if (!DomainValidator.isSameDomain(page.url(), baseDomain, allowSubdomains)) break;
+
+                List<ElementHandle> inputs = page.querySelectorAll("input:not([type='hidden'])");
+                for (ElementHandle element : inputs) {
+                    if (element.isDisabled() || !element.isVisible()) continue;
+
+                    String name = element.getAttribute("name");
+                    if (name == null) continue;
+
+                    Locator locator = page.locator("input[name='" + name + "']").first();
+                    String type = element.getAttribute("type");
+                    fillLogic(locator, type != null ? type : "text");
                 }
 
-                try {
-                    List<ElementHandle> inputElements = page.querySelectorAll("input");
+                List<Locator> buttons = getAllClickableButtons(page).stream()
+                        .filter(btn -> isSafeButton(btn, baseDomain, allowSubdomains))
+                        .toList();
 
-                    for (ElementHandle element : inputElements) {
-                        if (element == null || element.isDisabled() || element.isHidden()) continue;
+                if (buttons.isEmpty()) break;
 
-                        String type = element.getAttribute("type");
-                        String name = element.getAttribute("name");
-                        if (name == null) continue;
+                Locator selectedButton = buttons.get(ThreadLocalRandom.current().nextInt(buttons.size()));
+                selectedButton.evaluate("el => el.removeAttribute('target')"); // Keep in same tab
 
-                        Locator locator = page.locator("input[name='" + name + "']").first();
+                selectedButton.click(new Locator.ClickOptions().setTimeout(5000));
+                page.waitForTimeout(1000);
 
-                        switch (type != null ? type : "text") {
-                            case "radio" -> handleRadioButton(locator, element);
-                            case "text", "password" -> handleTextInput(page, locator);
-                            case "number" ->
-                                    waitAndEnterText(page, locator, String.valueOf(ThreadLocalRandom.current().nextInt(0, 9999)));
-                            case "checkbox" -> {
-                                if (!(boolean) element.evaluate("el => el.checked")) element.click();
-                            }
-                        }
-                    }
-
-                    List<Locator> buttons = getAllClickableButtons(page).stream()
-                            .filter(btn -> isSafeButton(btn, baseDomain, allowSubdomains))
-                            .toList();
-
-                    if (buttons.isEmpty()) return;
-
-                    Locator selectedButton = buttons.get(ThreadLocalRandom.current().nextInt(buttons.size()));
-
-                    selectedButton.evaluate("el => el.removeAttribute('target')");
-
-                    selectedButton.click(new Locator.ClickOptions().setTimeout(3000));
-                    page.waitForTimeout(500);
-                    scan(page);
-
-                } catch (PlaywrightException e) {
-                    LOGGER.info("Retrying due to: {}", e.getMessage());
-                    if (++attempts >= maxAttempts) break;
-                }
+                AXEScanner.scan(page);
+                attempts++;
             }
         } catch (Exception e) {
-            LOGGER.error("Form fill failed", e);
+            LOGGER.error("Playwright Form fill failed", e);
+        }
+    }
+
+    private static void fillLogic(Locator locator, String type) {
+        switch (type != null ? type : "text") {
+            case "radio" -> handleRadioButton(locator);
+            case "checkbox" -> {
+                if (!locator.isChecked()) locator.check();
+            }
+            case "number" -> locator.fill(String.valueOf(ThreadLocalRandom.current().nextInt(1, 9999)));
+            default -> handleTextInput(locator);
+        }
+    }
+
+    private static void handleTextInput(Locator locator) {
+        String name = Objects.requireNonNullElse(locator.getAttribute("name"), "").toLowerCase();
+        String valueToFill;
+
+        if (name.contains("email")) {
+            valueToFill = "test@dvsa.gov.uk";
+        } else if (name.contains("postcode")) {
+            valueToFill = "NG2 1AY";
+        } else if (name.contains("registration")) {
+            valueToFill = AppConfig.getString("registration");
+        } else {
+            valueToFill = RandomStringUtils.secure().nextAlphabetic(8);
+        }
+
+        locator.fill(valueToFill);
+    }
+
+    private static void handleRadioButton(Locator locator) {
+        List<Locator> options = locator.all();
+        if (!options.isEmpty()) {
+            options.get(ThreadLocalRandom.current().nextInt(options.size())).check();
+        }
+    }
+
+    private static void handleCookieBanners(Page page) {
+        try {
+            Locator accept = page.locator("button:has-text('Accept'), button:has-text('Agree')").first();
+            if (accept.isVisible()) accept.click();
+        } catch (Exception ignored) {
         }
     }
 
@@ -109,11 +121,99 @@ public class AnswerBot {
         try {
             String text = button.textContent().toLowerCase();
             String href = button.getAttribute("href");
+            if (text.contains("logout") || text.contains("sign out")) return false;
+            if (href != null && href.startsWith("http")) {
+                return DomainValidator.isSameDomain(href, baseDomain, allowSubdomains);
+            }
+            return true;
+        } catch (Exception e) {
+            return false;
+        }
+    }
 
-            if (text.contains("sign out") || text.contains("logout")) return false;
+    public static List<Locator> getAllClickableButtons(Page page) {
+        return page.locator("button:visible:enabled, input[type='submit']:visible:enabled, a.govuk-button").all();
+    }
 
-            if (text.contains("cookie") || text.contains("manage cookies") ||
-                    text.contains("cookie preferences") || text.contains("cookie settings")) return false;
+    private static void runSeleniumFormFill(WebDriver driver, String url, String baseDomain, boolean allowSubdomains) {
+        try {
+            if (!DomainValidator.isSameDomain(url, baseDomain, allowSubdomains)) return;
+
+            driver.get(url);
+            handleCookieBannersSelenium(driver);
+
+            int attempts = 0;
+            while (attempts < 5) {
+                if (!DomainValidator.isSameDomain(driver.getCurrentUrl(), baseDomain, allowSubdomains)) break;
+
+                List<WebElement> inputs = driver.findElements(By.cssSelector("input:not([type='hidden'])"));
+                for (WebElement element : inputs) {
+                    if (!element.isDisplayed() || !element.isEnabled()) continue;
+
+                    String type = element.getAttribute("type");
+                    String name = element.getAttribute("name");
+                    if (name == null) continue;
+
+                    seleniumFillLogic(element, type != null ? type : "text");
+                }
+
+                List<WebElement> buttons = driver.findElements(By.cssSelector("button, input[type='submit'], .govuk-button"))
+                        .stream()
+                        .filter(btn -> isSafeButtonSelenium(btn, baseDomain, allowSubdomains))
+                        .toList();
+
+                if (buttons.isEmpty()) break;
+
+                WebElement selectedButton = buttons.get(ThreadLocalRandom.current().nextInt(buttons.size()));
+
+                ((org.openqa.selenium.JavascriptExecutor) driver).executeScript("arguments[0].removeAttribute('target')", selectedButton);
+
+                selectedButton.click();
+
+                AXEScanner.scan(driver);
+                attempts++;
+            }
+        } catch (Exception e) {
+            LOGGER.error("Selenium Form fill failed", e);
+        }
+    }
+
+    private static void seleniumFillLogic(WebElement element, String type) {
+        switch (type) {
+            case "radio", "checkbox" -> {
+                if (!element.isSelected()) element.click();
+            }
+            case "number" -> element.sendKeys(String.valueOf(ThreadLocalRandom.current().nextInt(1, 9999)));
+            default -> {
+                String name = Objects.requireNonNull(element.getAttribute("name")).toLowerCase();
+                String value;
+                if (name.contains("email")) value = "test@dvsa.gov.uk";
+                else if (name.contains("postcode")) value = "NG2 1AY";
+                else value = RandomStringUtils.secure().nextAlphabetic(8);
+
+                element.clear();
+                element.sendKeys(value);
+            }
+        }
+    }
+
+    private static boolean isSafeButtonSelenium(WebElement button, String baseDomain, boolean allowSubdomains) {
+        try {
+            if (!button.isDisplayed() || !button.isEnabled()) {
+                return false;
+            }
+
+            String text = button.getText().toLowerCase();
+            String href = button.getAttribute("href");
+            String type = button.getAttribute("type");
+
+            if (text.contains("sign out") || text.contains("logout") || text.contains("log out")) {
+                return false;
+            }
+
+            if (text.contains("remove") || text.contains("delete") || text.contains("cookie")) {
+                return false;
+            }
 
             if (href != null && !href.startsWith("#") && !href.startsWith("/")) {
                 return DomainValidator.isSameDomain(href, baseDomain, allowSubdomains);
@@ -125,150 +225,26 @@ public class AnswerBot {
         }
     }
 
-    private static void handleCookieBanners(Page page) {
-        String[] commonSelectors = {"button:has-text('Accept')", "button:has-text('Agree')", "#cookie-accept", ".optanon-allow-all"};
-        for (String selector : commonSelectors) {
+    private static void handleCookieBannersSelenium(WebDriver driver) {
+        String[] xpathSelectors = {
+                "//button[contains(text(), 'Accept')]",
+                "//button[contains(text(), 'Agree')]",
+                "//button[contains(text(), 'Accept additional cookies')]",
+                "//*[@id='cookie-accept']",
+                "//a[contains(@class, 'govuk-button') and contains(text(), 'Accept')]"
+        };
+
+        for (String xpath : xpathSelectors) {
             try {
-                if (page.locator(selector).isVisible()) {
-                    page.locator(selector).click();
-                    page.waitForTimeout(500);
+                List<WebElement> banners = driver.findElements(By.xpath(xpath));
+                if (!banners.isEmpty() && banners.get(0).isDisplayed()) {
+                    banners.get(0).click();
+                    LOGGER.info("Accepted cookie banner via Selenium: {}", xpath);
+                    Thread.sleep(500);
                 }
             } catch (Exception ignored) {
+                // We ignore errors here so the bot keeps trying to fill the actual form
             }
-        }
-    }
-
-    private static void handleRadioButton(Locator locator, ElementHandle element) {
-        if ((boolean) element.evaluate("el => el.checked")) return;
-
-        List<Locator> radioButtons = locator.all();
-        if (radioButtons.isEmpty()) {
-            LOGGER.warn("No radio buttons found.");
-            return;
-        }
-
-        for (Locator radioButton : radioButtons) {
-            String label = radioButton.getAttribute("aria-label");
-            String value = radioButton.getAttribute("value");
-
-            if ((label != null && label.toLowerCase().contains("no")) ||
-                    (value != null && value.equalsIgnoreCase("n"))) {
-                if (!(boolean) radioButton.evaluate("el => el.checked")) {
-                    radioButton.click();
-                    return;
-                }
-            }
-        }
-        radioButtons.get(ThreadLocalRandom.current().nextInt(radioButtons.size())).click();
-    }
-
-
-    private static void handleTextInput(Page page, Locator locator) {
-        try {
-            String name = locator.getAttribute("name").toLowerCase();
-
-            if (name.contains("email")) {
-                waitAndEnterText(page, locator, "answer.bot@dvsa.gov.uk");
-            } else if (name.contains("password")) {
-                List<String> passwords = Files.readAllLines(Paths.get("src/test/resources/PwnedPasswordsTop120.txt"));
-                waitAndEnterText(page, locator, getRandomFromList(passwords));
-            } else if (name.contains("username")) {
-                List<String> usernames = Files.readAllLines(Paths.get("src/test/resources/CommonUsernames.txt"));
-                waitAndEnterText(page, locator, getRandomFromList(usernames));
-            } else if (name.contains("phone")) {
-                waitAndEnterText(page, locator, "07" + ThreadLocalRandom.current().nextInt(100000000, 999999999));
-            } else if (name.contains("postcode")) {
-                waitAndEnterText(page, locator, "NG2 1AY");
-            } else if (name.contains("city")) {
-                waitAndEnterText(page, locator, RandomStringUtils.secure().nextAlphabetic(9).toLowerCase());
-            } else if (name.contains("code")) {
-                waitAndEnterText(page, locator, String.valueOf(ThreadLocalRandom.current().nextInt(0, 99999)));
-            } else if (name.contains("registration")) {
-                waitAndEnterText(page, locator, AppConfig.getString("registration"));
-            } else if (name.contains("vin")) {
-                waitAndEnterText(page, locator, AppConfig.getString("vin"));
-            } else if (name.contains("weight")) {
-                waitAndEnterText(page, locator, String.valueOf(ThreadLocalRandom.current().nextInt(0, 99)));
-            } else {
-                waitAndEnterText(page, locator, RandomStringUtils.secure().nextAlphabetic(11).toLowerCase());
-            }
-
-        } catch (IOException e) {
-            LOGGER.error("Error reading text input data", e);
-        }
-    }
-
-    private static String getRandomFromList(List<String> list) {
-        return list.get(ThreadLocalRandom.current().nextInt(list.size()));
-    }
-
-    public static List<Locator> getAllClickableButtons(Page page) {
-        List<Locator> allButtons = new ArrayList<>();
-
-        try {
-            String combinedSelector = String.join(", ",
-                    "button:visible:enabled",
-                    "input[type='submit']:visible:enabled",
-                    "input[type='button']:visible:enabled",
-                    "input[type='reset']:visible:enabled",
-                    "a:visible[class*='button']",
-                    "a:visible[class*='btn']",
-                    "[role='button']:visible"
-            );
-
-            allButtons.addAll(page.locator(combinedSelector).all());
-
-            String[] essentialButtonTexts = {
-                    "submit", "continue", "next", "start", "confirm", "ok", "apply", "save"
-            };
-
-            for (String text : essentialButtonTexts) {
-                String caseInsensitiveSelector = String.format(
-                        "button:visible:enabled:has-text(/%s/i), a:visible:has-text(/%s/i)",
-                        text, text);
-                try {
-                    allButtons.addAll(page.locator(caseInsensitiveSelector).all());
-                } catch (Exception e) {
-                    allButtons.addAll(page.locator("button:visible:enabled:has-text('" + text + "'), a:visible:has-text('" + text + "')").all());
-                }
-            }
-
-            allButtons.addAll(page.locator("div:visible[onclick]:first-of-type, span:visible[onclick]:first-of-type").all());
-
-        } catch (Exception e) {
-            LOGGER.warn("Error collecting buttons, falling back to basic selector: {}", e.getMessage());
-            allButtons.addAll(page.locator("button:visible:enabled, input[type='submit']:visible:enabled").all());
-        }
-
-        return allButtons.stream()
-                .distinct()
-                .filter(AnswerBot::isValidClickableButton)
-                .limit(10) // Limit to avoid excessive button clicks
-                .collect(Collectors.toList());
-    }
-
-
-    private static boolean isValidClickableButton(Locator button) {
-        try {
-            if (!button.isVisible()) return false;
-
-            String text = button.textContent().toLowerCase();
-            String value = button.getAttribute("value");
-            if (value != null) value = value.toLowerCase();
-
-            return !text.contains("sign out") &&
-                    !text.contains("logout") &&
-                    !text.contains("log out") &&
-                    !text.contains("remove") &&
-                    !text.contains("cookies") &&
-                    (value == null ||
-                            (!value.contains("sign out") &&
-                            !value.contains("logout") &&
-                            !value.contains("remove") &&
-                            !value.contains("cookies"))) &&
-                    text.length() <= 100;
-        } catch (Exception e) {
-            return false;
         }
     }
 }
