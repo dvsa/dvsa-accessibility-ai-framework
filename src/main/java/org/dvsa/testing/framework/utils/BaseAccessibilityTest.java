@@ -8,10 +8,7 @@ import org.junit.jupiter.api.AfterAll;
 import org.junit.jupiter.api.BeforeAll;
 import org.junit.jupiter.api.TestInstance;
 
-/**
- * The base class for all accessibility tests.
- * Handles driver lifecycle and final report generation.
- */
+
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
 public abstract class BaseAccessibilityTest {
     protected static final Logger LOGGER = LogManager.getLogger(BaseAccessibilityTest.class);

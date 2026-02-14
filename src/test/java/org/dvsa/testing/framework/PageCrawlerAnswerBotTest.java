@@ -1,11 +1,8 @@
 package org.dvsa.testing.framework;
 
 import com.microsoft.playwright.*;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 import org.dvsa.testing.framework.bots.AnswerBot;
 import org.dvsa.testing.framework.config.AppConfig;
-import org.dvsa.testing.framework.jsoup.SpiderCrawler;
 
 import org.dvsa.testing.framework.utils.BaseAccessibilityTest;
 import org.junit.jupiter.api.Test;
@@ -25,13 +22,9 @@ public class PageCrawlerAnswerBotTest extends BaseAccessibilityTest {
     public void mtsRandomAnswerAndCrawlerScanner() {
         String[] urls = AppConfig.getBaseUrls();
         String url = (urls.length > 1) ? urls[1] : urls[0];
-
         navigate(url);
-
         performLogin();
-
         String currentUrl = getUrl();
-
         AnswerBot.formAutoFill(driver, currentUrl, AppConfig.getString("domain"), true);
 //        SpiderCrawler.crawler(1, currentUrl, new HashSet<>(), driver);
     }
@@ -57,7 +50,6 @@ public class PageCrawlerAnswerBotTest extends BaseAccessibilityTest {
         if (page.locator("#otp-code").isVisible()) page.fill("#otp-code", pin);
         if (page.locator("#pin").isVisible()) page.fill("#pin", pin);
 
-        page.click("input[type='submit']");
         syncCookies();
     }
 
