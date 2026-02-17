@@ -1,9 +1,11 @@
 package org.dvsa.testing.framework;
 
 import com.microsoft.playwright.*;
+import com.microsoft.playwright.options.WaitForSelectorState;
 import org.dvsa.testing.framework.bots.AnswerBot;
 import org.dvsa.testing.framework.config.AppConfig;
 
+import org.dvsa.testing.framework.jsoup.SpiderCrawler;
 import org.dvsa.testing.framework.utils.BaseAccessibilityTest;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestInstance;
@@ -26,7 +28,7 @@ public class PageCrawlerAnswerBotTest extends BaseAccessibilityTest {
         performLogin();
         String currentUrl = getUrl();
         AnswerBot.formAutoFill(driver, currentUrl, AppConfig.getString("domain"), true);
-//        SpiderCrawler.crawler(1, currentUrl, new HashSet<>(), driver);
+        SpiderCrawler.crawler(1, currentUrl, new HashSet<>(), driver);
     }
 
     private void performLogin() {
@@ -38,6 +40,10 @@ public class PageCrawlerAnswerBotTest extends BaseAccessibilityTest {
     }
 
     private void loginPlaywright(Page page) {
+        Locator submitButton = page.locator("input[type='submit']");
+        Locator otpCodeInput = page.locator("input[id='otp-code']");
+        Locator pinInput = page.locator("input[id='pin']");
+
         if (page.locator("//*[contains(text(),'Accept additional cookies')]").isVisible()) {
             page.click("//*[contains(text(),'Accept additional cookies')]");
         }
@@ -46,10 +52,15 @@ public class PageCrawlerAnswerBotTest extends BaseAccessibilityTest {
         page.fill("#password", AppConfig.getString("password"));
         page.click("input[type='submit']");
 
-        String pin = generatePin(AppConfig.getString("authKey"));
-        if (page.locator("#otp-code").isVisible()) page.fill("#otp-code", pin);
-        if (page.locator("#pin").isVisible()) page.fill("#pin", pin);
-
+        if (otpCodeInput.isVisible()) {
+            otpCodeInput.fill(generatePin(AppConfig.getString("authKey")));
+        }
+        if (pinInput.isVisible()) {
+            pinInput.fill(generatePin(AppConfig.getString("authKey")));
+        }
+        if (submitButton.isVisible()) {
+            submitButton.click();
+        }
         syncCookies();
     }
 
