@@ -5,8 +5,20 @@
     <modelVersion>4.0.0</modelVersion>
 
     <groupId>org.dvsa.testing.framework</groupId>
-    <artifactId>accessibility-automated-page-crawler</artifactId>
-    <version>2.0</version>
+    <artifactId>accessibility-ai-core</artifactId>
+    <version>1.0.0</version>
+
+    <name>AI-Augmented Accessibility Framework</name>
+    <description>A hybrid page crawler that combines axe-core scans with AI-driven semantic analysis.</description>
+    <url>https://github.com/dvsa/accessibility-ai-framework</url>
+
+    <distributionManagement>
+        <repository>
+            <id>github</id>
+            <name>GitHub DVSA Apache Maven Packages</name>
+            <url>https://maven.pkg.github.com/dvsa/accessibility-ai-framework</url>
+        </repository>
+    </distributionManagement>
 
     <properties>
         <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>

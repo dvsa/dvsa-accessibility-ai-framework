@@ -75,7 +75,6 @@ public class AnswerBot {
                     } catch (Exception ignored) {}
                 }
 
-                // --- Buttons ---
                 List<Locator> buttons = getAllClickableButtonsPlaywright(page)
                         .stream()
                         .filter(btn -> isSafeButtonPlaywright(page, btn, baseDomain, allowSubdomains))
@@ -279,7 +278,6 @@ public class AnswerBot {
         String typeAttr = Objects.requireNonNullElse(element.getAttribute("type"), "text").toLowerCase();
         String inputMode = Objects.requireNonNullElse(element.getAttribute("inputmode"), "").toLowerCase();
 
-        // 1. SMART DETECTION: Using JavaScript to find GDS error messages or hints
         String hintText = "";
         try {
             hintText = (String) ((JavascriptExecutor) driver).executeScript(
@@ -348,7 +346,6 @@ public class AnswerBot {
     private static void performAggressiveSeleniumClick(WebDriver driver, WebElement el) {
         try {
             ((JavascriptExecutor) driver).executeScript("arguments[0].scrollIntoView({block: 'center'}); arguments[0].focus();", el);
-            // Synthetic click bypasses overlays
             ((JavascriptExecutor) driver).executeScript("var ev = new MouseEvent('click', {bubbles:true}); arguments[0].dispatchEvent(ev);", el);
         } catch (Exception e) {
             ((JavascriptExecutor) driver).executeScript("arguments[0].click();", el);

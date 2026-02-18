@@ -1,0 +1,14 @@
+name: CI/CD Pipeline
+
+on:
+  push:
+    branches: [ main ]
+  release:
+    types: [ created ]
+
+jobs:
+  call-maven-workflow:
+    uses: ./.github/workflows/maven.yml
+    with:
+      maven-goal: 'deploy' # We tell it to publish the package
+    secrets: inherit

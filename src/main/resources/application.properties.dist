@@ -14,10 +14,6 @@ domain=mot-testing
 registration=YOUR_TEST_REGISTRATION
 vin=YOUR_TEST_VIN
 
-# AnswerBot dropdown behavior tuning
-answerbot.dropdown.maxPasses=4
-answerbot.playwright.dropdown.settleMs=1000
-answerbot.selenium.dropdown.settleMs=200
 
 # Bedrock Configuration - replace with your actual AWS Bedrock settings
 bedrock.region=your_region

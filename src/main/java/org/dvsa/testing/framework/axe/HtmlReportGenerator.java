@@ -101,10 +101,8 @@ public class HtmlReportGenerator {
             }
 
             for (CheckedNode node : rule.getNodes()) {
-                // --- SCREENSHOT LOOKUP (Option 1: By URL) ---
                 String rawFilename = pageScreenshots.get(pageUrl);
 
-                // Smart fallback for URL key matching
                 if (rawFilename == null && pageUrl != null) {
                     rawFilename = pageScreenshots.entrySet().stream()
                             .filter(e -> e.getKey().replaceAll("/$", "").equalsIgnoreCase(pageUrl.replaceAll("/$", "")))

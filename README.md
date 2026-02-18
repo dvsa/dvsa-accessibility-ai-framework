@@ -102,22 +102,13 @@ DriverManager.quit();
 #### Configuration
 Pass standards via system properties:
 ```
--Dstandards.scan=wcag22aa,best-practice
 ```
 
 Create `src/test/resources/application.properties` (or copy from `src/main/resources/application.properties.dist`) and set required values.
+bedrock.region=your_region
+bedrock.agent.id=YOUR_BEDROCK_AGENT_ID
+bedrock.agent.alias.id=YOUR_BEDROCK_AGENT_ALIAS_ID
 
-AnswerBot dropdown tuning:
-```
-answerbot.dropdown.maxPasses=4
-answerbot.playwright.dropdown.settleMs=1000
-answerbot.selenium.dropdown.settleMs=200
-```
-- `answerbot.dropdown.maxPasses`: max dependency passes for primary -> secondary selects.
-- `answerbot.playwright.dropdown.settleMs`: wait timeout after each Playwright dropdown change.
-- `answerbot.selenium.dropdown.settleMs`: sleep between Selenium dropdown passes.
-
----
 
 ### Report Output
 Reports are generated in:
