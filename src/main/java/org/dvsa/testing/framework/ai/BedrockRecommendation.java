@@ -16,13 +16,6 @@ public record BedrockRecommendation(
         @JsonProperty("text") String rawText
 ) {
 
-    public String getRecommendationText() {
-        if (recommendation != null && !recommendation.isBlank()) {
-            return recommendation;
-        }
-        return (rawText != null) ? rawText.trim() : "No recommendation provided";
-    }
-
     public static Builder builder() {
         return new Builder();
     }

@@ -3,6 +3,7 @@ package org.dvsa.testing.framework.bots;
 import com.microsoft.playwright.*;
 import com.microsoft.playwright.options.LoadState;
 import com.microsoft.playwright.options.SelectOption;
+import net.datafaker.Faker;
 import org.apache.commons.lang3.RandomStringUtils;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -25,6 +26,12 @@ import static org.dvsa.testing.framework.axe.AXEScanner.scan;
 
 public class AnswerBot {
     private static final Logger LOGGER = LogManager.getLogger(AnswerBot.class);
+
+    private static final Faker faker = new Faker(new Locale("en-GB"));
+
+    public static String getPostcode() {
+        return faker.address().zipCode();
+    }
 
     public static void formAutoFill(Object driver, String url, String baseDomain, boolean allowSubdomains) {
         if (driver instanceof Page page) {
@@ -220,7 +227,10 @@ public class AnswerBot {
             waitAndEnterText(locator, "07" + ThreadLocalRandom.current().nextLong(100000000L, 999999999L));
         }
         else if (nameAttr.contains("postcode")) {
-            waitAndEnterText(locator, "NG2 1AY");
+            waitAndEnterText(locator, getPostcode());
+        }
+        else if (nameAttr.toLowerCase().contains("aeusername")) {
+            waitAndEnterText(locator, "ARYA7524");
         }
         else if (nameAttr.contains("registration")) {
             // Probabilistic toggle: 30/70 split
@@ -258,7 +268,6 @@ public class AnswerBot {
         if ("select".equals(tagName)) {
             Select select = new Select(el);
             if (select.getOptions().size() > 1) {
-                // Select index 1 to avoid placeholder "Please select" at index 0
                 select.selectByIndex(1);
             }
         } else {
@@ -307,7 +316,7 @@ public class AnswerBot {
             waitAndEnterTextSelenium(element, "07" + ThreadLocalRandom.current().nextLong(100000000L, 999999999L));
         }
         else if (nameAttr.contains("postcode")) {
-            waitAndEnterTextSelenium(element, "NG2 1AY");
+            waitAndEnterTextSelenium(element, getPostcode());
         }
         else if (nameAttr.contains("registration")) {
             // Probabilistic toggle: 30/70 split
@@ -356,7 +365,6 @@ public class AnswerBot {
         List<WebElement> allButtons = new ArrayList<>();
 
         try {
-            // 1. Basic CSS Selector for standard button-like elements
             String combinedSelector = String.join(", ",
                     "button:not([disabled])",
                     "input[type='submit']:not([disabled])",
@@ -408,6 +416,7 @@ public class AnswerBot {
                 !txt.contains("logout") &&
                 !txt.contains("remove") &&
                 !txt.contains("cookies") &&
+                !txt.contains("abort") &&
                 txt.length() <= 120;
     }
 
@@ -422,7 +431,6 @@ public class AnswerBot {
             driver.findElement(By.xpath("//button[contains(text(),'Accept')]")).click();
         } catch (Exception ignored) {}
     }
-
 
     private static void setupPlaywrightPopupHandler(Page page, String baseDomain, boolean allowSubdomains) {
         page.context().onPage(newPage -> {
@@ -517,17 +525,33 @@ public class AnswerBot {
         }
     }
 
-
     private static String generateSmartNumericValue(Locator locator) {
+        String id = locator.getAttribute("id").toLowerCase();
+        String name = locator.getAttribute("name").toLowerCase();
         String maxLenAttr = locator.getAttribute("maxlength");
-        int limit = (maxLenAttr != null) ? Integer.parseInt(maxLenAttr) : 5;
 
-        if (limit == 2) return String.valueOf(ThreadLocalRandom.current().nextInt(1, 12)); // Month/Day
-        if (limit == 4) return String.valueOf(ThreadLocalRandom.current().nextInt(1980, 2024)); // Year
+        // 1. Check by ID/Name first (Most reliable for Dates)
+        if (id.contains("month") || name.contains("month")) {
+            return String.valueOf(ThreadLocalRandom.current().nextInt(1, 13));
+        }
+        if (id.contains("day") || name.contains("day")) {
+            return String.valueOf(ThreadLocalRandom.current().nextInt(1, 29));
+        }
+        if (id.contains("year") || name.contains("year")) {
+            return String.valueOf(ThreadLocalRandom.current().nextInt(1980, 2025));
+        }
 
-        return String.valueOf(ThreadLocalRandom.current().nextLong((long) Math.pow(10, limit - 1), (long) Math.pow(10, limit) - 1));
+        // 2. Fallback to maxlength if it exists
+        if (maxLenAttr != null) {
+            int limit = Integer.parseInt(maxLenAttr);
+            long min = (long) Math.pow(10, limit - 1);
+            long max = (long) Math.pow(10, limit) - 1;
+            return String.valueOf(ThreadLocalRandom.current().nextLong(min, max));
+        }
+
+        // 3. Final generic fallback
+        return String.valueOf(ThreadLocalRandom.current().nextInt(1, 100));
     }
-
 
     private static String generateNumericValueByLimit(String maxLenAttr) {
         int limit = (maxLenAttr != null && !maxLenAttr.isEmpty()) ? Integer.parseInt(maxLenAttr) : 5;

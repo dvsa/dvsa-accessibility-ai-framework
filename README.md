@@ -102,6 +102,7 @@ DriverManager.quit();
 #### Configuration
 Pass standards via system properties:
 ```
+-Dstandards.scan=wcag22aa,best-practice
 ```
 
 Create `src/test/resources/application.properties` (or copy from `src/main/resources/application.properties.dist`) and set required values.

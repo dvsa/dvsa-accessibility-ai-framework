@@ -1,6 +1,7 @@
 package org.dvsa.testing.framework;
 
 import com.microsoft.playwright.*;
+import com.microsoft.playwright.options.AriaRole;
 import com.microsoft.playwright.options.WaitForSelectorState;
 import org.dvsa.testing.framework.bots.AnswerBot;
 import org.dvsa.testing.framework.config.AppConfig;
@@ -15,21 +16,34 @@ import org.openqa.selenium.WebElement;
 
 import java.util.*;
 
-import static org.dvsa.testing.framework.otp.Generator.generatePin;
+import static org.dvsa.testing.framework.axe.AXEScanner.scan;
+import static otp.Generator.generatePin;
 
 @TestInstance(TestInstance.Lifecycle.PER_CLASS)
 public class PageCrawlerAnswerBotTest extends BaseAccessibilityTest {
 
-    @Test
+    //Commented out unit tests after moving to framework
+    //Use as examples
+
+//    @Test
     public void mtsRandomAnswerAndCrawlerScanner() {
         String[] urls = AppConfig.getBaseUrls();
         String url = (urls.length > 1) ? urls[1] : urls[0];
         navigate(url);
         performLogin();
+        AnswerBot.formAutoFill(driver, getUrl(), AppConfig.getString("domain"), true);
+        SpiderCrawler.crawler(1, getUrl(), new HashSet<>(), driver);
+    }
+
+//    @Test
+    public void volRandomAnswerAndCrawlerScanner() {
+        navigate("http://ssweb.qa.olcs.dev-dvsacloud.uk/");
+        performLogin();
         String currentUrl = getUrl();
-        AnswerBot.formAutoFill(driver, currentUrl, AppConfig.getString("domain"), true);
+        AnswerBot.formAutoFill(driver, currentUrl, "qa.olcs.dev", true);
         SpiderCrawler.crawler(1, currentUrl, new HashSet<>(), driver);
     }
+
 
     private void performLogin() {
         if (driver instanceof Page page) {
@@ -61,6 +75,15 @@ public class PageCrawlerAnswerBotTest extends BaseAccessibilityTest {
         if (submitButton.isVisible()) {
             submitButton.click();
         }
+        page.getByText("Site information").click();
+        scan(page);
+        page.locator("input[id='site_number']").fill("VTS001084");
+        submitButton.click();
+        page.getByRole(AriaRole.LINK, new Page.GetByRoleOptions().setName("Site review")).click();
+        scan(page);
+        Locator link = page.locator("#site-assessment-action-link");
+        link.waitFor(new Locator.WaitForOptions().setState(WaitForSelectorState.VISIBLE));
+        link.click();
         syncCookies();
     }
 
@@ -71,9 +94,8 @@ public class PageCrawlerAnswerBotTest extends BaseAccessibilityTest {
         webDriver.findElement(By.id("password")).sendKeys(AppConfig.getString("password"));
         clickIfVisible(webDriver, By.cssSelector("input[type='submit']"));
 
-        String pin = generatePin(AppConfig.getString("authKey"));
-        sendIfVisible(webDriver, By.id("otp-code"), pin);
-        sendIfVisible(webDriver, By.id("pin"), pin);
+        sendIfVisible(webDriver, By.id("otp-code"), generatePin(AppConfig.getString("authKey")));
+        sendIfVisible(webDriver, By.id("pin"), generatePin(AppConfig.getString("authKey")));
 
         clickIfVisible(webDriver, By.cssSelector("input[type='submit']"));
         syncCookies();

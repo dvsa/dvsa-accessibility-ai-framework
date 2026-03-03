@@ -146,6 +146,12 @@
             <artifactId>slf4j-simple</artifactId>
             <version>${slf4j.version}</version>
         </dependency>
+        <dependency>
+            <groupId>net.datafaker</groupId>
+            <artifactId>datafaker</artifactId>
+            <version>2.5.4</version>
+            <scope>compile</scope>
+        </dependency>
     </dependencies>
 
     <build>
