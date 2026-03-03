@@ -1,4 +1,4 @@
-package org.dvsa.testing.framework.utils;
+package org.dvsa.testing.framework;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
