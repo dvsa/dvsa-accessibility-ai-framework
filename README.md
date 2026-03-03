@@ -1,6 +1,6 @@
 ## AI-Augmented Accessibility Framework
 
-An automated testing and auditing engine combining Playwright, Axe-core, and AWS Bedrock AI to find accessibility violations and provide live GOV.UK Design System (GDS) compliant fixes.
+An automated testing and auditing engine combining Selenium or Playwright, Axe-core, and AWS Bedrock AI to find accessibility violations and provide live GOV.UK Design System (GDS) compliant fixes.
 
 ---
 
@@ -17,7 +17,7 @@ An automated testing and auditing engine combining Playwright, Axe-core, and AWS
 The framework is divided into four logical layers:
 
 1. **Execution Layer** (`AXEScanner`)
-   - Leverages Playwright to navigate the service and Axe-core to perform technical audits.
+   - Uses either Playwright (`Page`) or Selenium (`WebDriver`) to run Axe-core audits.
    - State Management: Accumulates violations and screenshots in static concurrent maps.
    - Screenshot Mapping: Captures one full-page screenshot per URL for visual evidence.
 
@@ -41,7 +41,8 @@ The framework is divided into four logical layers:
 - Java 21+ (see `pom.xml` for version)
 - Maven
 - AWS credentials (configured for Bedrock access)
-- Playwright browsers (run: `mvn playwright:install`)
+- Playwright browsers if using Playwright (run: `mvn playwright:install`)
+- Browser drivers if using Selenium (managed automatically via WebDriverManager)
 
 #### Dependencies
 Ensure the following are in your `pom.xml`:
@@ -61,11 +62,12 @@ Ensure the following are in your `pom.xml`:
 ### Usage
 
 #### Running a Scan
-Add the scanner to your Playwright test suite:
+You can scan with either Playwright or Selenium. `AXEScanner.scan(...)` accepts both `Page` and `WebDriver`.
 
 ```java
+// Playwright example
 @Test
-void accessibilityAudit() {
+void accessibilityAuditPlaywright() {
    page.navigate("https://your-gov-service.gov.uk");
    AXEScanner.scan(page); // Repeat across multiple pages
 }
@@ -76,13 +78,38 @@ static void tearDown() {
 }
 ```
 
+```java
+// Selenium example
+@Test
+void accessibilityAuditSelenium() {
+   WebDriver driver = new ChromeDriver();
+   try {
+      driver.get("https://your-gov-service.gov.uk");
+      AXEScanner.scan(driver); // Repeat across multiple pages
+   } finally {
+      driver.quit();
+   }
+}
+```
+
+```java
+// Unified driver setup from this project
+Object driver = DriverManager.init("playwright", "chrome"); // or ("selenium", "chrome")
+AXEScanner.scan(driver);
+DriverManager.quit();
+```
+
 #### Configuration
 Pass standards via system properties:
 ```
 -Dstandards.scan=wcag22aa,best-practice
 ```
 
----
+Create `src/test/resources/application.properties` (or copy from `src/main/resources/application.properties.dist`) and set required values.
+bedrock.region=your_region
+bedrock.agent.id=YOUR_BEDROCK_AGENT_ID
+bedrock.agent.alias.id=YOUR_BEDROCK_AGENT_ALIAS_ID
+
 
 ### Report Output
 Reports are generated in:

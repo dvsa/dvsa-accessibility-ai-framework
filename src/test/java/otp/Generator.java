@@ -1,4 +1,4 @@
-package org.dvsa.testing.framework.otp;
+package otp;
 
 public class Generator {
     private static final String CRYPTO_TYPE = "HmacSHA1";

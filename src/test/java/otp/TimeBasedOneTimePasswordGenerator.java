@@ -1,4 +1,4 @@
-package org.dvsa.testing.framework.otp;
+package otp;
 
 
 import java.lang.reflect.UndeclaredThrowableException;

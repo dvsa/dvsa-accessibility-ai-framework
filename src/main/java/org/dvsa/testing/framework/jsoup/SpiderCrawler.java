@@ -2,6 +2,8 @@ package org.dvsa.testing.framework.jsoup;
 
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import org.dvsa.testing.framework.axe.AXEScanner;
+import org.dvsa.testing.framework.bots.AnswerBot;
 import org.dvsa.testing.framework.utils.DomainValidator;
 import org.jsoup.Jsoup;
 import org.jsoup.nodes.Document;
@@ -9,100 +11,129 @@ import org.jsoup.nodes.Element;
 import com.microsoft.playwright.Page;
 import com.microsoft.playwright.options.LoadState;
 import com.microsoft.playwright.options.WaitUntilState;
+import org.openqa.selenium.WebDriver;
 
 import java.net.URI;
 import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.regex.Pattern;
-
-import static org.dvsa.testing.framework.axe.AXEScanner.scan;
 
 
 public class SpiderCrawler {
 
     private static final Logger LOGGER = LogManager.getLogger(SpiderCrawler.class);
-    private static final int MAX_CRAWL_DEPTH = 10;
+    private static final int MAX_CRAWL_DEPTH = 30;
     private static final int MAX_URLS_PER_DOMAIN = 1000;
 
+    private static final Set<String> visitedUrls = ConcurrentHashMap.newKeySet();
+
+    private static final List<String> BLACKLISTED_PATHS = Arrays.asList(
+            System.getProperty("scanner.exclude.paths", "/topsreport").split(",")
+    );
+
+    private static boolean isInvalidUrl(String url) {
+        if (url == null || url.trim().isEmpty() || url.startsWith("about:")) {
+            return true;
+        }
+
+        if (ACTION_PATTERN.matcher(url).matches()) {
+            LOGGER.warn("Skipping potential state-changing URL: {}", url);
+            return true;
+        }
+
+        boolean isBlacklisted = BLACKLISTED_PATHS.stream()
+                .anyMatch(path -> url.toLowerCase().contains(path.toLowerCase()));
+
+        if (isBlacklisted) {
+            LOGGER.info("URL ignored (Blacklisted path): {}", url);
+            return true;
+        }
+
+        String pathOnly = url.split("\\?")[0];
+        return EXCLUDE_PATTERN.matcher(pathOnly).matches();
+    }
+
     private static final Pattern EXCLUDE_PATTERN = Pattern.compile(
-            ".*\\.(pdf|zip|gz|tar|mp3|mp4|avi|png|jpg|jpeg|gif|css|js|csv|docx|xlsx|exe|dmg)$",
+            ".*\\.(pdf|zip|gz|tar|mp[34]|avi|png|jpg|jpeg|gif|svg|ico|css|js|map|csv|docx?|xlsx?|exe|dmg|woff2?|ttf|eot|json|xml)(\\?.*)?$",
             Pattern.CASE_INSENSITIVE
     );
 
     private static final Pattern ACTION_PATTERN = Pattern.compile(
-            ".*(logout|signout|delete|remove|cancel|auth|login).*",
+            ".*(logout|signout|delete|remove|cancel|auth|login|abort).*",
             Pattern.CASE_INSENSITIVE
     );
 
 
-    public static void crawler(int level, String url, Set<String> visited, Page page) {
+    public static void crawler(int level, String url, Set<String> visited, Object driver) {
         String baseDomain = DomainValidator.extractDomain(url);
         if (baseDomain == null) {
             LOGGER.error("Cannot extract domain from starting URL: {}", url);
             return;
         }
-
-        crawlerWithDomain(level, url, visited, page, baseDomain, false);
+        crawlerWithDomain(level, url, visited, driver, baseDomain, false);
     }
 
-
-    public static void crawlerWithDomain(int level, String url, Set<String> visited, Page page, String baseDomain, boolean allowSubdomains) {
+    public static void crawlerWithDomain(int level, String url, Set<String> visited, Object driver, String baseDomain, boolean allowSubdomains) {
         if (level >= MAX_CRAWL_DEPTH || visited.size() >= MAX_URLS_PER_DOMAIN) {
             return;
         }
 
         String normalisedUrl = normaliseUrl(url);
 
-        if (!DomainValidator.isSameDomain(normalisedUrl, baseDomain, allowSubdomains) || !visited.add(normalisedUrl)) {
+        if (isInvalidUrl(normalisedUrl)) {
             return;
         }
 
-        page.context().onPage(newPage -> {
-            try {
-                newPage.waitForLoadState(LoadState.DOMCONTENTLOADED);
-                String newTabUrl = newPage.url();
-                if (!DomainValidator.isSameDomain(newTabUrl, baseDomain, allowSubdomains)) {
-                    LOGGER.warn("Closing unauthorized external popup: {}", newTabUrl);
-                    newPage.close();
-                }
-            } catch (Exception e) {
-                LOGGER.error("Error handling new page event", e);
-            }
-        });
+        if (!visited.add(normalisedUrl)) {
+            LOGGER.debug("Skipping: Base URL already visited -> {}", normalisedUrl);
+            return;
+        }
+
+        if (!DomainValidator.isSameDomain(normalisedUrl, baseDomain, allowSubdomains)) {
+            return;
+        }
 
         LOGGER.info("Crawling [Level {}]: {}", level, normalisedUrl);
 
         try {
-            page.navigate(normalisedUrl, new Page.NavigateOptions().setWaitUntil(WaitUntilState.LOAD));
+            String actualUrl;
+            if (driver instanceof Page page) {
+                page.navigate(normalisedUrl, new Page.NavigateOptions().setWaitUntil(WaitUntilState.LOAD));
+                page.waitForLoadState(LoadState.NETWORKIDLE);
+                page.evaluate("() => { document.querySelectorAll('a[target]').forEach(l => l.removeAttribute('target')); }");
+                actualUrl = page.url();
+            } else if (driver instanceof WebDriver seleniumDriver) {
+                seleniumDriver.get(normalisedUrl);
+                actualUrl = seleniumDriver.getCurrentUrl();
+            } else {
+                throw new IllegalArgumentException("Unsupported driver type");
+            }
 
-            String currentUrl = page.url();
-            if (!DomainValidator.isSameDomain(currentUrl, baseDomain, allowSubdomains)) {
-                LOGGER.debug("Redirected outside domain scope: {}", currentUrl);
+            if (!DomainValidator.isSameDomain(actualUrl, baseDomain, allowSubdomains)) {
+                LOGGER.debug("Redirected outside domain: {}", actualUrl);
                 return;
             }
 
-            page.evaluate("() => { document.querySelectorAll('a[target]').forEach(l => l.removeAttribute('target')); }");
+            AXEScanner.scan(driver);
 
-            scan(page);
-
-            Document doc = Jsoup.parse(page.content(), normalisedUrl);
+            String freshContent = getPageSource(driver);
+            assert actualUrl != null;
+            Document doc = Jsoup.parse(freshContent, actualUrl);
             var links = doc.select("a[href]");
 
             for (Element link : links) {
                 String nextUrl = link.absUrl("href");
                 if (shouldFollow(nextUrl, baseDomain, visited, allowSubdomains)) {
-                    crawlerWithDomain(level + 1, nextUrl, visited, page, baseDomain, allowSubdomains);
+                    crawlerWithDomain(level + 1, nextUrl, visited, driver, baseDomain, allowSubdomains);
                 }
             }
-
         } catch (Exception e) {
             LOGGER.error("Failed to crawl URL [Level {}]: {}", level, normalisedUrl, e);
         }
     }
 
     private static String normaliseUrl(String urlString) {
-        if (urlString == null || urlString.trim().isEmpty()) {
-            return "";
-        }
+        if (urlString == null || urlString.trim().isEmpty()) return "";
 
         try {
             URI uri = new URI(urlString.trim());
@@ -114,31 +145,41 @@ public class SpiderCrawler {
                     null
             ).toString().toLowerCase();
 
-            return normalized.endsWith("/") && normalized.length() > 1
+            return (normalized.endsWith("/") && normalized.length() > 8) // > 8 to avoid stripping 'https://'
                     ? normalized.substring(0, normalized.length() - 1)
                     : normalized;
 
         } catch (Exception e) {
-            LOGGER.debug("Failed to normalize URL: {}", urlString, e);
-            return urlString.toLowerCase().trim();
+            String fallback = urlString.trim().toLowerCase();
+            if (fallback.contains("#")) {
+                fallback = fallback.split("#")[0];
+            }
+            if (fallback.contains("?")) {
+                fallback = fallback.split("\\?")[0];
+            }
+            if (fallback.endsWith("/") && fallback.length() > 8) {
+                fallback = fallback.substring(0, fallback.length() - 1);
+            }
+            return fallback;
         }
     }
 
     private static boolean shouldFollow(String url, String baseDomain, Set<String> visited, boolean allowSubdomains) {
-        if (url == null || url.trim().isEmpty()) return false;
-        if (!url.startsWith("http")) return false;
+        if (isInvalidUrl(url)) return false;
 
-        if (!DomainValidator.isSameDomain(url, baseDomain, allowSubdomains)) {
-            return false;
-        }
+        if (!DomainValidator.isSameDomain(url, baseDomain, allowSubdomains)) return false;
 
         String normalized = normaliseUrl(url);
-        if (visited.contains(normalized)) {
-            return false;
-        }
+        return !visited.contains(normalized);
+    }
 
-        String pathOnly = normalized.split("\\?")[0];
-        if (EXCLUDE_PATTERN.matcher(pathOnly).matches()) return false;
-        return !ACTION_PATTERN.matcher(normalized).matches();
+
+    private static String getPageSource(Object driver) {
+        if (driver instanceof Page page) {
+            return page.content();
+        } else if (driver instanceof WebDriver selenium) {
+            return selenium.getPageSource();
+        }
+        return "";
     }
 }

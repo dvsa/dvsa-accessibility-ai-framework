@@ -10,11 +10,15 @@ import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import org.dvsa.testing.framework.ai.BedrockAgentAnalyser;
 import org.dvsa.testing.framework.ai.BedrockRecommendation;
+import org.openqa.selenium.OutputType;
+import org.openqa.selenium.TakesScreenshot;
+import org.openqa.selenium.WebDriver;
 
 import java.io.*;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
+import java.nio.file.StandardCopyOption;
 import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.*;
@@ -28,62 +32,90 @@ public class AXEScanner {
     private static final ConcurrentHashMap<Rule, String> allViolations = new ConcurrentHashMap<>();
     private static final ConcurrentHashMap<String, String> pageScreenshots = new ConcurrentHashMap<>(); // URL -> screenshot path
 
-    public AXEScanner() throws Exception {
+    public AXEScanner() {
     }
 
-    public static void scan(Page page) {
-        List<String> tags = Optional.ofNullable(System.getProperty("standards.scan"))
-                .map(Collections::singletonList)
-                .orElse(List.of("wcag22a", "wcag22aa", "wcag412", "wcag143", "cat.**", "best-practice"));
+    public static void scan(Object driver) {
+        if (driver instanceof Page) {
+            scanPlaywright((Page) driver);
+        } else if (driver instanceof WebDriver) {
+            scanSelenium((WebDriver) driver);
+        } else {
+            throw new IllegalArgumentException("Unsupported driver type: " + driver.getClass().getName());
+        }
+    }
 
+    private static void scanPlaywright(Page page) {
         try {
             page.waitForLoadState(LoadState.DOMCONTENTLOADED);
-            page.waitForTimeout(500); // 500ms "settle" time to allow JS context to stabilize
+            page.waitForTimeout(500);
 
             String currentUrl = page.url();
-
-            if (currentUrl == null || currentUrl.startsWith("about:") || currentUrl.isEmpty()) {
-                LOGGER.warn("Skipping scan: Invalid page state ({})", currentUrl);
-                return;
-            }
+            if (isInvalidUrl(currentUrl)) return;
 
             AxeResults axeResponse;
             int retries = 3;
             while (true) {
                 try {
-                    axeResponse = new AxeBuilder(page)
-                            .withTags(tags)
-                            .analyze();
+                    axeResponse = new AxeBuilder(page).withTags(getScanTags()).analyze();
                     break;
                 } catch (RuntimeException e) {
                     if (e.getMessage().contains("unable to inject") && --retries > 0) {
-                        LOGGER.warn("Axe injection failed. Retrying in 1s... (Attempts left: {})", retries);
                         page.waitForTimeout(1000);
-                    } else {
-                        throw e;
-                    }
+                    } else throw e;
                 }
             }
-
-            if (axeResponse != null && !axeResponse.getViolations().isEmpty()) {
-                if (!pageScreenshots.containsKey(currentUrl)) {
-                    String filename = captureScreenshot(page, currentUrl);
-                    if (filename != null) {
-                        pageScreenshots.put(currentUrl, filename);
-                        LOGGER.info("Saved page screenshot for URL: {}", currentUrl);
-                    }
-                }
-
-                for (Rule rule : axeResponse.getViolations()) {
-                    allViolations.put(rule, currentUrl);
-                }
-            } else {
-                LOGGER.info("No violations found on {}", currentUrl);
-            }
-
+            processResults(currentUrl, axeResponse.getViolations(), page);
         } catch (Exception e) {
-            LOGGER.error("Accessibility scan failed on {}: {}", page.url(), e.getMessage());
+            LOGGER.error("Playwright scan failed: {}", e.getMessage());
         }
+    }
+
+    private static void scanSelenium(WebDriver driver) {
+        try {
+            String currentUrl = driver.getCurrentUrl();
+            if (isInvalidUrl(currentUrl)) return;
+
+            com.deque.html.axecore.results.Results results = new com.deque.html.axecore.selenium.AxeBuilder()
+                    .withTags(getScanTags())
+                    .analyze(driver);
+
+            processResults(currentUrl, results.getViolations(), driver);
+        } catch (Exception e) {
+            LOGGER.error("Selenium scan failed: {}", e.getMessage());
+        }
+    }
+
+    private static String captureScreenshot(Object driver, String url) {
+        try {
+            String screenshotDir = "target/reports/screenshots/";
+            Files.createDirectories(Paths.get(screenshotDir));
+
+            String filename = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyyMMdd-HHmmss"))
+                    + "_" + url.replaceAll("[^a-zA-Z0-9]", "_").substring(0, Math.min(30, url.length())) + ".png";
+            Path path = Paths.get(screenshotDir + filename);
+
+            if (driver instanceof Page) {
+                ((Page) driver).screenshot(new Page.ScreenshotOptions().setPath(path).setFullPage(true));
+            } else if (driver instanceof WebDriver) {
+                File src = ((TakesScreenshot) driver).getScreenshotAs(OutputType.FILE);
+                Files.copy(src.toPath(), path, StandardCopyOption.REPLACE_EXISTING);
+            }
+            return filename;
+        } catch (Exception e) {
+            LOGGER.error("Screenshot failed: {}", e.getMessage());
+            return null;
+        }
+    }
+
+    private static List<String> getScanTags() {
+        return Optional.ofNullable(System.getProperty("standards.scan"))
+                .map(Collections::singletonList)
+                .orElse(List.of("wcag22a", "wcag22aa", "wcag412", "wcag143", "cat.**", "best-practice"));
+    }
+
+    private static boolean isInvalidUrl(String url) {
+        return url == null || url.startsWith("about:") || url.isEmpty();
     }
 
     public static ConcurrentHashMap<Rule, String> getAllViolations() {
@@ -94,34 +126,6 @@ public class AXEScanner {
         return pageScreenshots;
     }
 
-
-    private static String captureScreenshot(Page page, String url) {
-        try {
-            String screenshotDir = "target/reports/screenshots/";
-            Path dirPath = Paths.get(screenshotDir);
-            if (!Files.exists(dirPath)) {
-                Files.createDirectories(dirPath);
-                LOGGER.info("Created screenshot directory: {}", screenshotDir);
-            }
-
-            String timestamp = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd-HH-mm-ss"));
-            String sanitizedUrl = url.replaceAll("[^a-zA-Z0-9.-]", "_")
-                    .replaceAll("_{2,}", "_")
-                    .substring(0, Math.min(50, url.length()));
-            String filename = timestamp + "_" + sanitizedUrl + ".png";
-            String fullPath = screenshotDir + filename;
-
-            page.screenshot(new Page.ScreenshotOptions()
-                    .setPath(Paths.get(fullPath))
-                    .setFullPage(true));
-
-            return filename;
-
-        } catch (Exception e) {
-            LOGGER.error("Failed to capture screenshot for {}: {}", url, e.getMessage());
-            return null;
-        }
-    }
 
     public static void generateFinalReport() {
         if (allViolations.isEmpty()) {
@@ -190,6 +194,21 @@ public class AXEScanner {
             writer.write(content);
         } catch (Exception e) {
             LOGGER.error(e);
+        }
+    }
+
+
+    private static void processResults(String url, List<Rule> violations, Object driver) {
+        if (!violations.isEmpty()) {
+            pageScreenshots.computeIfAbsent(url, k -> captureScreenshot(driver, url));
+
+            for (Rule rule : violations) {
+                allViolations.put(rule, url);
+            }
+
+            LOGGER.info("Found {} violations on {}", violations.size(), url);
+        } else {
+            LOGGER.info("No violations found on {}", url);
         }
     }
 }
