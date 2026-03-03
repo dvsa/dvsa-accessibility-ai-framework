@@ -7,7 +7,6 @@ import org.dvsa.testing.framework.bots.AnswerBot;
 import org.dvsa.testing.framework.config.AppConfig;
 
 import org.dvsa.testing.framework.jsoup.SpiderCrawler;
-import org.dvsa.testing.framework.utils.BaseAccessibilityTest;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestInstance;
 import org.openqa.selenium.By;
