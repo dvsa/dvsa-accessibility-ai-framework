@@ -33,9 +33,11 @@
         <playwright.version>1.58.0</playwright.version>
         <selenium.version>4.40.0</selenium.version>
         <aws.sdk.version>2.41.26</aws.sdk.version>
-        <jackson.version>2.15.2</jackson.version>
+        <jackson.version>3.1.0</jackson.version>
+        <jackson.datatype.versionn>3.0.0-rc2</jackson.datatype.versionn>
         <slf4j.version>2.0.7</slf4j.version>
         <json.version>20250517</json.version>
+        <faker.version>2.5.4</faker.version>
     </properties>
 
     <dependencyManagement>
@@ -108,13 +110,8 @@
         </dependency>
 
         <dependency>
-            <groupId>com.fasterxml.jackson.core</groupId>
+            <groupId>tools.jackson.core</groupId>
             <artifactId>jackson-databind</artifactId>
-            <version>${jackson.version}</version>
-        </dependency>
-        <dependency>
-            <groupId>com.fasterxml.jackson.datatype</groupId>
-            <artifactId>jackson-datatype-jsr310</artifactId>
             <version>${jackson.version}</version>
         </dependency>
         <dependency>
@@ -149,7 +146,7 @@
         <dependency>
             <groupId>net.datafaker</groupId>
             <artifactId>datafaker</artifactId>
-            <version>2.5.4</version>
+            <version>${faker.version}</version>
             <scope>compile</scope>
         </dependency>
     </dependencies>
