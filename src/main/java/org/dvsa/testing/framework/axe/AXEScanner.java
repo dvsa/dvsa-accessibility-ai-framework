@@ -23,14 +23,18 @@ import java.time.LocalDateTime;
 import java.time.format.DateTimeFormatter;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.stream.Collectors;
 
 import static org.dvsa.testing.framework.axe.HtmlReportGenerator.generateHtmlReport;
 
 public class AXEScanner {
 
     private static final Logger LOGGER = LogManager.getLogger(AXEScanner.class);
-    private static final ConcurrentHashMap<Rule, String> allViolations = new ConcurrentHashMap<>();
-    private static final ConcurrentHashMap<String, String> pageScreenshots = new ConcurrentHashMap<>(); // URL -> screenshot path
+    private static final CopyOnWriteArrayList<ViolationEntry> allViolations = new CopyOnWriteArrayList<>();
+    private static final ConcurrentHashMap<String, String> pageScreenshots = new ConcurrentHashMap<>();
+
+    public record ViolationEntry(Rule rule, String pageUrl) {}
 
     public AXEScanner() {
     }
@@ -118,7 +122,7 @@ public class AXEScanner {
         return url == null || url.startsWith("about:") || url.isEmpty();
     }
 
-    public static ConcurrentHashMap<Rule, String> getAllViolations() {
+    public static CopyOnWriteArrayList<ViolationEntry> getAllViolations() {
         return allViolations;
     }
 
@@ -133,24 +137,38 @@ public class AXEScanner {
             return;
         }
 
+        List<ViolationEntry> snapshot = new ArrayList<>(allViolations);
+        LOGGER.info("Generating report for {} total violation instances across {} pages...",
+                snapshot.size(),
+                snapshot.stream().map(ViolationEntry::pageUrl).distinct().count());
+
+        Map<String, Rule> uniqueRules = snapshot.stream()
+                .collect(Collectors.toMap(
+                        e -> e.rule().getId(),
+                        ViolationEntry::rule,
+                        (existing, replacement) -> existing
+                ));
+
+        LOGGER.info("Deduplicated to {} unique rule IDs for Bedrock analysis (from {} total violations)",
+                uniqueRules.size(), snapshot.size());
+
         try {
             LOGGER.info("Generating report with Bedrock recommendations & Live Scraped Context...");
 
             BedrockAgentAnalyser analyser = new BedrockAgentAnalyser();
 
-            Map<String, BedrockRecommendation> recommendationMap = analyser.analyseViolations(allViolations);
+            Map<String, BedrockRecommendation> recommendationMap = analyser.analyseUniqueViolations(uniqueRules);
 
             if (recommendationMap == null || recommendationMap.isEmpty()) {
                 LOGGER.warn("No AI recommendations received from Bedrock. Falling back to basic report.");
-                generateBasicReport();
+                generateBasicReport(snapshot);
                 return;
             }
 
-            LOGGER.info("DEBUG: Keys in Bedrock Map: {}", recommendationMap.keySet());
-            LOGGER.info("DEBUG: Keys in Violations Map: {}", allViolations.keySet().stream().map(Rule::getId).toList());
+            LOGGER.info("Bedrock recommendations received for rules: {}", recommendationMap.keySet());
 
             String htmlContent = HtmlReportGenerator.generateHtmlReport(
-                    allViolations,
+                    snapshot,
                     recommendationMap,
                     new HashMap<>(),
                     pageScreenshots
@@ -162,16 +180,16 @@ public class AXEScanner {
 
         } catch (Exception e) {
             LOGGER.error("Failed to generate AI report: {}", e.getMessage(), e);
-            generateBasicReport();
+            generateBasicReport(snapshot);
         }
     }
 
-    static void generateBasicReport() {
+    static void generateBasicReport(List<ViolationEntry> snapshot) {
         try {
             Map<String, BedrockRecommendation> emptyRecommendations = new HashMap<>();
             Map<String, BedrockRecommendation> emptyKbMap = new HashMap<>();
 
-            String htmlContent = generateHtmlReport(getAllViolations(), emptyRecommendations, emptyKbMap, getPageScreenshots());
+            String htmlContent = generateHtmlReport(snapshot, emptyRecommendations, emptyKbMap, getPageScreenshots());
             bufferedFileWriter(htmlContent);
 
             LOGGER.info("Basic accessibility report generated successfully (without AI recommendations).");
@@ -190,7 +208,7 @@ public class AXEScanner {
             LOGGER.info("Created directory: {}", "target/reports");
         }
 
-        try (BufferedWriter writer = new BufferedWriter(new FileWriter(folderName + dateTime + fileName, true))) {
+        try (BufferedWriter writer = new BufferedWriter(new FileWriter(folderName + dateTime + fileName, false))) {
             writer.write(content);
         } catch (Exception e) {
             LOGGER.error(e);
@@ -203,7 +221,7 @@ public class AXEScanner {
             pageScreenshots.computeIfAbsent(url, k -> captureScreenshot(driver, url));
 
             for (Rule rule : violations) {
-                allViolations.put(rule, url);
+                allViolations.add(new ViolationEntry(rule, url));
             }
 
             LOGGER.info("Found {} violations on {}", violations.size(), url);
