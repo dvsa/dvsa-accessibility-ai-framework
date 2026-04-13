@@ -6,8 +6,9 @@ import org.dvsa.testing.framework.ai.BedrockRecommendation;
 
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
-import java.util.List;
+import java.util.HashSet;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
 
@@ -29,12 +30,13 @@ public class HtmlReportGenerator {
     }
 
     public static String generateHtmlReport(
-            List<AXEScanner.ViolationEntry> violations,
+            ConcurrentHashMap<Rule, String> rules,
             Map<String, BedrockRecommendation> bedrockRecommendationMap,
             Map<String, BedrockRecommendation> kbMap,
             Map<String, String> pageScreenshots
     ) {
         StringBuilder htmlReport = new StringBuilder();
+        Set<String> seenRulesIds = new HashSet<>();
 
         htmlReport.append("<!DOCTYPE html>\n")
                 .append("<html><head><meta charset='UTF-8'><title>Accessibility Report</title>")
@@ -53,7 +55,6 @@ public class HtmlReportGenerator {
                 .append(".download-btn:hover { background-color: #005a27; }")
                 .append(".modal { display: none; position: fixed; z-index: 1000; left: 0; top: 0; width: 100%; height: 100%; background-color: rgba(0,0,0,0.9); overflow: auto; }")
                 .append(".modal-content { margin: auto; display: block; width: 80%; max-width: 1200px; padding: 40px 0; }")
-                .append(".summary { background: #f3f2f1; padding: 15px; margin-bottom: 20px; border-left: 4px solid #1d70b8; }")
                 .append("</style>")
                 .append("<script>")
                 .append("function openModal(src) { document.getElementById('screenshotModal').style.display='block'; document.getElementById('modalImage').src=src; }")
@@ -61,11 +62,6 @@ public class HtmlReportGenerator {
                 .append("</script>")
                 .append("</head><body>")
                 .append("<h1>Accessibility Report (AI Augmented)</h1>")
-                .append("<div class='summary'>")
-                .append("<strong>Total violation instances:</strong> ").append(violations.size())
-                .append(" | <strong>Unique rules:</strong> ").append(violations.stream().map(e -> e.rule().getId()).distinct().count())
-                .append(" | <strong>Pages scanned:</strong> ").append(violations.stream().map(AXEScanner.ViolationEntry::pageUrl).distinct().count())
-                .append("</div>")
                 .append("<table><tr>")
                 .append("<th style='width: 12%;'>Source URL</th>")
                 .append("<th style='width: 18%;'>Screenshot</th>")
@@ -82,9 +78,11 @@ public class HtmlReportGenerator {
                 "moderate", "#4c2c92"
         );
 
-        for (AXEScanner.ViolationEntry entry : violations) {
-            Rule rule = entry.rule();
-            String pageUrl = entry.pageUrl();
+        for (Map.Entry<Rule, String> ruleEntry : rules.entrySet()) {
+            Rule rule = ruleEntry.getKey();
+            String pageUrl = ruleEntry.getValue();
+
+            if (!seenRulesIds.add(rule.getId())) continue;
 
             String impactColor = impactColors.getOrDefault(rule.getImpact(), "#505a5f");
 

@@ -15,6 +15,7 @@ import org.openqa.selenium.WebDriver;
 
 import java.net.URI;
 import java.util.*;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.regex.Pattern;
 
 
@@ -23,6 +24,8 @@ public class SpiderCrawler {
     private static final Logger LOGGER = LogManager.getLogger(SpiderCrawler.class);
     private static final int MAX_CRAWL_DEPTH = 30;
     private static final int MAX_URLS_PER_DOMAIN = 1000;
+
+    private static final Set<String> visitedUrls = ConcurrentHashMap.newKeySet();
 
     private static final List<String> BLACKLISTED_PATHS = Arrays.asList(
             System.getProperty("scanner.exclude.paths", "/topsreport").split(",")
