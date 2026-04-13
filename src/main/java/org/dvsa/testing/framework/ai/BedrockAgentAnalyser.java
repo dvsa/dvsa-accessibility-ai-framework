@@ -43,6 +43,91 @@ public class BedrockAgentAnalyser {
         this.agentAliasId = org.dvsa.testing.framework.config.AppConfig.getString("bedrock.agent.alias.id");
     }
 
+    public Map<String, BedrockRecommendation> analyseUniqueViolations(Map<String, Rule> uniqueRules) throws Exception {
+        LOGGER.info("Starting chunked analysis for {} unique rule IDs", uniqueRules.size());
+
+        Map<String, BedrockRecommendation> finalMap = new HashMap<>();
+
+        ConcurrentHashMap<Rule, String> tempMap = new ConcurrentHashMap<>();
+        for (Map.Entry<String, Rule> entry : uniqueRules.entrySet()) {
+            tempMap.put(entry.getValue(), entry.getKey());
+        }
+        String liveContext = buildScrapedContext(tempMap);
+
+        List<Map.Entry<String, Rule>> ruleList = new ArrayList<>(uniqueRules.entrySet());
+        int chunkSize = 3;
+
+        for (int i = 0; i < ruleList.size(); i += chunkSize) {
+            int end = Math.min(i + chunkSize, ruleList.size());
+            List<Map.Entry<String, Rule>> chunk = ruleList.subList(i, end);
+
+            LOGGER.info("Processing chunk {}/{} (Rules {}-{})",
+                    (i / chunkSize) + 1, (int) Math.ceil((double) ruleList.size() / chunkSize), i + 1, end);
+
+            String chunkJson = formatUniqueRulesChunkAsJson(chunk);
+            String finalPrompt = String.format(
+                    """
+                            SYSTEM: You are a GOV.UK Accessibility Auditor. You must fix violations using GOV.UK Design System patterns.
+                            USER: Fix these violations.\s
+                            
+                            MANDATORY OUTPUT RULES:
+                            1. Every item MUST have an 'example' field containing a GDS HTML snippet (e.g. using 'govuk-' classes).
+                            2. If the GDS context doesn't mention the specific rule, use your general knowledge of GOV.UK components (Buttons, Inputs, Headings) to provide the fix.
+                            3. Return ONLY a valid JSON array.
+                            
+                            ### GDS CONTEXT:
+                            %s
+                            
+                            ### VIOLATIONS:
+                            %s
+                            """,
+                    liveContext, chunkJson
+            );
+
+            try {
+                String rawResponse = invokeAgentViaRest(new JSONObject().put("inputText", finalPrompt));
+                List<BedrockRecommendation> recs = parseResponse(rawResponse);
+
+                for (int j = 0; j < recs.size(); j++) {
+                    if (j >= chunk.size()) break;
+
+                    String ruleId = chunk.get(j).getKey();
+                    BedrockRecommendation rec = recs.get(j);
+
+                    finalMap.put(ruleId, BedrockRecommendation.builder()
+                            .ruleId(ruleId)
+                            .issue(rec.issue())
+                            .recommendation(rec.recommendation())
+                            .reference(rec.reference())
+                            .example(rec.example())
+                            .build());
+                }
+
+                if (end < ruleList.size()) {
+                    LOGGER.info("Chunk complete. Sleeping for 1500ms to prevent rate limiting...");
+                    Thread.sleep(1500);
+                }
+
+            } catch (Exception e) {
+                LOGGER.error("Error processing rule chunk starting at index {}: {}", i, e.getMessage());
+            }
+        }
+
+        return finalMap;
+    }
+
+    private String formatUniqueRulesChunkAsJson(List<Map.Entry<String, Rule>> chunk) {
+        JSONArray array = new JSONArray();
+        for (Map.Entry<String, Rule> entry : chunk) {
+            JSONObject obj = new JSONObject();
+            obj.put("ruleId", entry.getKey());
+            obj.put("description", entry.getValue().getDescription());
+            obj.put("impact", entry.getValue().getImpact());
+            array.put(obj);
+        }
+        return array.toString();
+    }
+
     public Map<String, BedrockRecommendation> analyseViolations(ConcurrentHashMap<Rule, String> violations) throws Exception {
         LOGGER.info("Starting chunked analysis for {} violations", violations.size());
 
