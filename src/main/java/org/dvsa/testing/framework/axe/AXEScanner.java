@@ -24,6 +24,7 @@ import java.time.format.DateTimeFormatter;
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.stream.Collectors;
 
 import static org.dvsa.testing.framework.axe.HtmlReportGenerator.generateHtmlReport;
@@ -33,6 +34,7 @@ public class AXEScanner {
     private static final Logger LOGGER = LogManager.getLogger(AXEScanner.class);
     private static final CopyOnWriteArrayList<ViolationEntry> allViolations = new CopyOnWriteArrayList<>();
     private static final ConcurrentHashMap<String, String> pageScreenshots = new ConcurrentHashMap<>();
+    private static final AtomicBoolean reportGenerated = new AtomicBoolean(false);
 
     public record ViolationEntry(Rule rule, String pageUrl) {}
 
@@ -132,6 +134,11 @@ public class AXEScanner {
 
 
     public static void generateFinalReport() {
+        if (!reportGenerated.compareAndSet(false, true)) {
+            LOGGER.info("Report already generated; skipping duplicate invocation.");
+            return;
+        }
+
         if (allViolations.isEmpty()) {
             LOGGER.info("No accessibility issues found; skipping report generation.");
             return;
@@ -199,7 +206,7 @@ public class AXEScanner {
     }
 
     static void bufferedFileWriter(String content) {
-        String dateTime = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd-HH:mm:ss-"));
+        String dateTime = LocalDateTime.now().format(DateTimeFormatter.ofPattern("yyyy-MM-dd-HH.mm.ss-"));
         String fileName = "accessibility.html";
         String folderName = "target/reports/";
 
