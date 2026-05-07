@@ -24,7 +24,7 @@ public class PageCrawlerAnswerBotTest extends BaseAccessibilityTest {
     //Commented out unit tests after moving to framework
     //Use as examples
 
-//    @Test
+    @Test
     public void mtsRandomAnswerAndCrawlerScanner() {
         String[] urls = AppConfig.getBaseUrls();
         String url = (urls.length > 1) ? urls[1] : urls[0];

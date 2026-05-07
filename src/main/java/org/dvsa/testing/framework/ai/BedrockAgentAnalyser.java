@@ -122,89 +122,7 @@ public class BedrockAgentAnalyser {
             JSONObject obj = new JSONObject();
             obj.put("ruleId", entry.getKey());
             obj.put("description", entry.getValue().getDescription());
-            obj.put("impact", entry.getValue().getImpact());
-            array.put(obj);
-        }
-        return array.toString();
-    }
-
-    public Map<String, BedrockRecommendation> analyseViolations(ConcurrentHashMap<Rule, String> violations) throws Exception {
-        LOGGER.info("Starting chunked analysis for {} violations", violations.size());
-
-        Map<String, BedrockRecommendation> finalMap = new HashMap<>();
-        String liveContext = buildScrapedContext(violations);
-
-        List<Map.Entry<Rule, String>> violationList = new ArrayList<>(violations.entrySet());
-        int chunkSize = 3;
-
-        for (int i = 0; i < violationList.size(); i += chunkSize) {
-            int end = Math.min(i + chunkSize, violationList.size());
-            List<Map.Entry<Rule, String>> chunk = violationList.subList(i, end);
-
-            LOGGER.info("Processing chunk {}/{} (Violations {}-{})",
-                    (i / chunkSize) + 1, (int) Math.ceil((double) violationList.size() / chunkSize), i + 1, end);
-
-            String chunkJson = formatChunkAsJson(chunk);
-            String finalPrompt = String.format(
-                    """
-                            SYSTEM: You are a GOV.UK Accessibility Auditor. You must fix violations using GOV.UK Design System patterns.
-                            USER: Fix these violations.\s
-                            
-                            MANDATORY OUTPUT RULES:
-                            1. Every item MUST have an 'example' field containing a GDS HTML snippet (e.g. using 'govuk-' classes).
-                            2. If the GDS context doesn't mention the specific rule, use your general knowledge of GOV.UK components (Buttons, Inputs, Headings) to provide the fix.
-                            3. Return ONLY a valid JSON array.
-                            
-                            ### GDS CONTEXT:
-                            %s
-                            
-                            ### VIOLATIONS:
-                            %s
-                            """,
-                    liveContext, chunkJson
-            );
-
-            try {
-                // Invoke the AI
-                String rawResponse = invokeAgentViaRest(new JSONObject().put("inputText", finalPrompt));
-                List<BedrockRecommendation> recs = parseResponse(rawResponse);
-
-                for (int j = 0; j < recs.size(); j++) {
-                    if (j >= chunk.size()) break;
-
-                    String ruleId = chunk.get(j).getKey().getId();
-                    BedrockRecommendation rec = recs.get(j);
-
-                    finalMap.put(ruleId, BedrockRecommendation.builder()
-                            .ruleId(ruleId)
-                            .issue(rec.issue())
-                            .recommendation(rec.recommendation())
-                            .reference(rec.reference())
-                            .example(rec.example())
-                            .build());
-                }
-
-                if (end < violationList.size()) {
-                    LOGGER.info("Chunk complete. Sleeping for 1500ms to prevent rate limiting...");
-                    Thread.sleep(1500);
-                }
-
-            } catch (Exception e) {
-                LOGGER.error("Error processing violation chunk starting at index {}: {}", i, e.getMessage());
-            }
-        }
-
-        return finalMap;
-    }
-
-
-    private String formatChunkAsJson(List<Map.Entry<Rule, String>> chunk) {
-        JSONArray array = new JSONArray();
-        for (Map.Entry<Rule, String> entry : chunk) {
-            JSONObject obj = new JSONObject();
-            obj.put("ruleId", entry.getKey().getId());
-            obj.put("description", entry.getKey().getDescription());
-            obj.put("htmlSnippet", entry.getValue()); // This is the failing HTML
+            obj.put("htmlSnippet", entry.getValue().getImpact());
             array.put(obj);
         }
         return array.toString();
@@ -217,7 +135,8 @@ public class BedrockAgentAnalyser {
 
         try {
             ObjectMapper mapper = new ObjectMapper();
-            return mapper.readValue(rawResponse, new TypeReference<List<BedrockRecommendation>>() {});
+            return mapper.readValue(rawResponse, new TypeReference<>() {
+            });
         } catch (Exception e) {
             return fallbackRegexParse(rawResponse);
         }
@@ -260,7 +179,6 @@ public class BedrockAgentAnalyser {
                 .map(path -> "### " + path.toUpperCase() + "\n" + scraper.getLiveGuidance(path))
                 .collect(Collectors.joining("\n\n"));
     }
-
 
     private String invokeAgentViaRest(JSONObject promptJson) throws Exception {
         String sessionId = "session-" + UUID.randomUUID();
