@@ -3,6 +3,14 @@
   "version": "1.0.0",
   "description": "AI-Augmented Accessibility Framework - crawls pages with Playwright or Selenium, runs axe-core audits, and generates GOV.UK Design System compliant fix reports via AWS Bedrock. TypeScript port of the Java PageCrawler.",
   "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/dvsa/dvsa-accessibility-ai-framework.git",
+    "directory": "typescript"
+  },
+  "publishConfig": {
+    "registry": "https://npm.pkg.github.com"
+  },
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "files": [

@@ -26,6 +26,15 @@ Mirrors the Java framework's four logical layers:
 
 ## Installation
 
+The package is published to GitHub Packages, so point the `@dvsa` scope there in your project's `.npmrc`:
+
+```
+@dvsa:registry=https://npm.pkg.github.com
+//npm.pkg.github.com/:_authToken=${NODE_AUTH_TOKEN}
+```
+
+`NODE_AUTH_TOKEN` needs a token with `read:packages` — locally a classic PAT, in GitHub Actions the built-in `GITHUB_TOKEN` (with `packages: read` permission). Then:
+
 ```bash
 npm install @dvsa/page-crawler
 # Playwright browsers, if using the Playwright engine:
