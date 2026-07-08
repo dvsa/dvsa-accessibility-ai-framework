@@ -10,7 +10,7 @@ The framework ships in two languages so both Java and TypeScript projects can co
 
 | Implementation | Location | Consumed via | Documentation |
 | --- | --- | --- | --- |
-| Java | repository root (`src/`, `pom.xml`) | Maven dependency | [docs/java.md](docs/java.md) |
+| Java | repository root (`src/`, `pom.xml`) | Maven dependency | [src/README.md](src/README.md) |
 | TypeScript | [`typescript/`](typescript/) | npm package `@dvsa/page-crawler` | [typescript/README.md](typescript/README.md) |
 
 Both implementations share the same architecture and behaviour. When adding a feature or fixing a bug in one, mirror the change in the other so the two stay in sync.
@@ -51,7 +51,7 @@ Both implementations are divided into the same four logical layers:
 
 ### Getting Started
 
-- Java projects: see [docs/java.md](docs/java.md) for Maven setup, usage, and configuration.
+- Java projects: see [src/README.md](src/README.md) for Maven setup, usage, and configuration.
 - TypeScript/Node projects: see [typescript/README.md](typescript/README.md) for npm installation, test-runner examples, and configuration.
 
 ---
