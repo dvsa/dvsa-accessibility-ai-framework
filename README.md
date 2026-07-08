@@ -4,6 +4,19 @@ An automated testing and auditing engine combining Selenium or Playwright, Axe-c
 
 ---
 
+### Repository Layout
+
+The framework ships in two languages so both Java and TypeScript projects can consume it:
+
+| Implementation | Location | Consumed via |
+| --- | --- | --- |
+| Java (this document) | repository root (`src/`, `pom.xml`) | Maven dependency |
+| TypeScript | [`typescript/`](typescript/) | npm package `@dvsa/page-crawler` |
+
+Both implementations share the same architecture and behaviour. When adding a feature or fixing a bug in one, mirror the change in the other so the two stay in sync. See [typescript/README.md](typescript/README.md) for Node/TypeScript usage.
+
+---
+
 ### Key Features
 - **Intelligent Auto-Fill:** Traverses complex GOV.UK forms using domain-aware logic to reach deep-link pages.
 - **Live GDS Scraper:** Dynamically pulls the latest guidance from the GOV.UK Design System to ensure recommendations are always up-to-date.
