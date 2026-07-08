@@ -98,6 +98,108 @@ await AxeScanner.generateFinalReport();
 await DriverManager.quit();
 ```
 
+## Using in a Test Runner
+
+Realistic, copy-paste examples for the common runners. Two things apply to all of them:
+
+- **Raise the timeout.** A real browser audit takes far longer than the usual 5-second default.
+- **Don't parallelise scans.** `AxeScanner` accumulates violations in shared per-process state, so keep all accessibility scans in one test file (or force sequential runs), and call `generateFinalReport()` once at the end.
+
+### Jest
+
+```ts
+// tests/accessibility.test.ts
+import { Builder } from 'selenium-webdriver';
+import { AxeScanner } from '@dvsa/page-crawler';
+
+jest.setTimeout(120_000); // browser audits blow past Jest's 5s default
+
+it('accessibility audit selenium', async () => {
+  const driver = await new Builder().forBrowser('chrome').build();
+  try {
+    await driver.get('https://your-gov-service.gov.uk');
+    await AxeScanner.scan(driver); // repeat across multiple pages
+  } finally {
+    await driver.quit();
+  }
+});
+
+afterAll(async () => {
+  await AxeScanner.generateFinalReport(); // generates the cumulative AI report
+});
+```
+
+Run it:
+
+```bash
+npx jest tests/accessibility.test.ts   # just this file
+npm test                               # via the project's test script
+```
+
+Jest runs test files in parallel by default — keep the scans in one file, or use `--runInBand`.
+
+### Playwright Test
+
+`AxeScanner.scan(...)` accepts the Playwright `page` fixture directly — no Selenium needed:
+
+```ts
+// tests/accessibility.spec.ts
+import { test } from '@playwright/test';
+import { AxeScanner } from '@dvsa/page-crawler';
+
+test.describe.configure({ mode: 'serial' });
+test.setTimeout(120_000);
+
+test('accessibility audit', async ({ page }) => {
+  await page.goto('https://your-gov-service.gov.uk');
+  await AxeScanner.scan(page); // repeat across multiple pages
+});
+
+test.afterAll(async () => {
+  await AxeScanner.generateFinalReport();
+});
+```
+
+Run it:
+
+```bash
+npx playwright test tests/accessibility.spec.ts --workers=1
+```
+
+### Node built-in test runner
+
+No test framework dependency at all — just `tsx` to run TypeScript directly:
+
+```ts
+// tests/accessibility.test.ts
+import { test, after } from 'node:test';
+import { Builder } from 'selenium-webdriver';
+import { AxeScanner } from '@dvsa/page-crawler';
+
+test('accessibility audit selenium', { timeout: 120_000 }, async () => {
+  const driver = await new Builder().forBrowser('chrome').build();
+  try {
+    await driver.get('https://your-gov-service.gov.uk');
+    await AxeScanner.scan(driver);
+  } finally {
+    await driver.quit();
+  }
+});
+
+after(async () => {
+  await AxeScanner.generateFinalReport();
+});
+```
+
+Run it:
+
+```bash
+npm install -D tsx typescript
+npx tsx --test tests/accessibility.test.ts
+```
+
+Whichever runner you use, the cumulative report lands in `reports/<timestamp>-accessibility.html` once `generateFinalReport()` runs.
+
 ## Configuration
 
 The Java version reads JVM system properties and `application.properties`; the TypeScript version reads environment variables and the same `application.properties` format. Environment variables always win, with keys upper-snake-cased (`bedrock.agent.id` → `BEDROCK_AGENT_ID`).
