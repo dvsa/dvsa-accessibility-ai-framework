@@ -68,6 +68,23 @@ AXEScanner.scan(driver);
 DriverManager.quit();
 ```
 
+### Crawling a Whole Service
+
+```java
+Object driver = DriverManager.init("playwright", "headless");
+SpiderCrawler.crawler(0, "https://your-gov-service.gov.uk", new HashSet<>(), driver);
+AXEScanner.generateFinalReport();
+DriverManager.quit();
+```
+
+By default the crawl is read-only: it only follows links and never submits anything. Pass `true` as the final argument to hand pages containing a form over to the AnswerBot, which fills them and clicks through the journey, scanning every step — this reaches pages behind form submissions that links alone can't:
+
+```java
+SpiderCrawler.crawler(0, "https://your-gov-service.gov.uk", new HashSet<>(), driver, true);
+```
+
+⚠️ Form filling submits forms against the target service and picks buttons at random, so runs are neither read-only nor reproducible. Only use it against test environments. The crawler and AnswerBot share the visited set, so form-journey pages are not re-scanned by the crawl.
+
 ### Configuration
 Pass standards via system properties:
 ```

@@ -6,6 +6,7 @@ import { AppConfig } from '../config/appConfig.js';
 import { logger } from '../logger.js';
 import { isPlaywrightPage, type Driver } from '../types.js';
 import { DomainValidator } from '../utils/domainValidator.js';
+import { normaliseUrl } from '../utils/urls.js';
 import {
   randomAlphabetic,
   randomAlphanumeric,
@@ -22,16 +23,28 @@ export function getPostcode(): string {
   return faker.location.zipCode();
 }
 
+/**
+ * Fills and clicks through a form journey, scanning every step.
+ * Pass the crawler's `visited` set to record each page the bot traverses,
+ * so a surrounding crawl does not re-scan them.
+ */
 export async function formAutoFill(
   driver: Driver,
   url: string,
   baseDomain: string,
   allowSubdomains: boolean,
+  visited?: Set<string>,
 ): Promise<void> {
   if (isPlaywrightPage(driver)) {
-    await runPlaywrightEngine(driver, url, baseDomain, allowSubdomains);
+    await runPlaywrightEngine(driver, url, baseDomain, allowSubdomains, visited);
   } else {
-    await runSeleniumEngine(driver, url, baseDomain, allowSubdomains);
+    await runSeleniumEngine(driver, url, baseDomain, allowSubdomains, visited);
+  }
+}
+
+function markVisited(visited: Set<string> | undefined, url: string | null | undefined): void {
+  if (visited && url) {
+    visited.add(normaliseUrl(url));
   }
 }
 
@@ -42,6 +55,7 @@ async function runPlaywrightEngine(
   url: string,
   baseDomain: string,
   allowSubdomains: boolean,
+  visited?: Set<string>,
 ): Promise<void> {
   if (!DomainValidator.isSameDomain(url, baseDomain, allowSubdomains)) {
     logger.warn('Skipping form fill: outside domain');
@@ -62,6 +76,7 @@ async function runPlaywrightEngine(
         logger.warn('Redirected outside domain.');
         return;
       }
+      markVisited(visited, page.url());
 
       const inputs = page.locator("input:not([type='hidden']), textarea, select");
       const count = await inputs.count();
@@ -350,6 +365,7 @@ async function runSeleniumEngine(
   url: string,
   baseDomain: string,
   allowSubdomains: boolean,
+  visited?: Set<string>,
 ): Promise<void> {
   try {
     await driver.get(url);
@@ -363,6 +379,7 @@ async function runSeleniumEngine(
         logger.warn('Redirected outside domain.');
         return;
       }
+      markVisited(visited, currentUrl);
 
       const inputs = await driver.findElements(
         By.css("input:not([type='hidden']), textarea, select"),

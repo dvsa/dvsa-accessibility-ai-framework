@@ -1,11 +1,25 @@
 import * as cheerio from 'cheerio';
 import type { Page } from 'playwright';
 import { AxeScanner } from '../axe/axeScanner.js';
+import { formAutoFill } from '../bots/answerBot.js';
 import { logger } from '../logger.js';
 import { isPlaywrightPage, type Driver } from '../types.js';
 import { DomainValidator } from '../utils/domainValidator.js';
+import { normaliseUrl } from '../utils/urls.js';
+
+export { normaliseUrl };
 
 /** Port of org.dvsa.testing.framework.jsoup.SpiderCrawler (cheerio replaces JSoup). */
+
+export interface CrawlerOptions {
+  /**
+   * When true, pages containing a <form> are handed to the AnswerBot, which
+   * fills inputs and clicks through the journey, scanning every step. This
+   * SUBMITS FORMS against the target service and is intentionally random, so
+   * it is opt-in; the default crawl remains read-only.
+   */
+  formFill?: boolean;
+}
 
 const MAX_CRAWL_DEPTH = 30;
 const MAX_URLS_PER_DOMAIN = 1000;
@@ -39,28 +53,6 @@ function isInvalidUrl(url: string | null | undefined): boolean {
   return EXCLUDE_PATTERN.test(pathOnly);
 }
 
-export function normaliseUrl(urlString: string | null | undefined): string {
-  if (!urlString || !urlString.trim()) return '';
-
-  try {
-    const uri = new URL(urlString.trim());
-    let normalized = `${uri.protocol}//${uri.host}${uri.pathname || '/'}`.toLowerCase();
-
-    if (normalized.endsWith('/') && normalized.length > 8) {
-      normalized = normalized.slice(0, -1);
-    }
-    return normalized;
-  } catch {
-    let fallback = urlString.trim().toLowerCase();
-    if (fallback.includes('#')) fallback = fallback.split('#')[0];
-    if (fallback.includes('?')) fallback = fallback.split('?')[0];
-    if (fallback.endsWith('/') && fallback.length > 8) {
-      fallback = fallback.slice(0, -1);
-    }
-    return fallback;
-  }
-}
-
 function shouldFollow(
   url: string,
   baseDomain: string,
@@ -84,13 +76,14 @@ export async function crawler(
   url: string,
   visited: Set<string>,
   driver: Driver,
+  options: CrawlerOptions = {},
 ): Promise<void> {
   const baseDomain = DomainValidator.extractDomain(url);
   if (!baseDomain) {
     logger.error(`Cannot extract domain from starting URL: ${url}`);
     return;
   }
-  await crawlerWithDomain(level, url, visited, driver, baseDomain, false);
+  await crawlerWithDomain(level, url, visited, driver, baseDomain, false, options);
 }
 
 export async function crawlerWithDomain(
@@ -100,6 +93,7 @@ export async function crawlerWithDomain(
   driver: Driver,
   baseDomain: string,
   allowSubdomains: boolean,
+  options: CrawlerOptions = {},
 ): Promise<void> {
   if (level >= MAX_CRAWL_DEPTH || visited.size >= MAX_URLS_PER_DOMAIN) {
     return;
@@ -159,9 +153,22 @@ export async function crawlerWithDomain(
       }
     });
 
+    if (options.formFill && $('form').length > 0) {
+      logger.info(`Form detected on ${actualUrl} — handing over to AnswerBot`);
+      await formAutoFill(driver, actualUrl, baseDomain, allowSubdomains, visited);
+    }
+
     for (const nextUrl of links) {
       if (shouldFollow(nextUrl, baseDomain, visited, allowSubdomains)) {
-        await crawlerWithDomain(level + 1, nextUrl, visited, driver, baseDomain, allowSubdomains);
+        await crawlerWithDomain(
+          level + 1,
+          nextUrl,
+          visited,
+          driver,
+          baseDomain,
+          allowSubdomains,
+          options,
+        );
       }
     }
   } catch (e) {

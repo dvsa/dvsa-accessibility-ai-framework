@@ -96,6 +96,14 @@ await AxeScanner.generateFinalReport();
 await DriverManager.quit();
 ```
 
+By default the crawl is read-only: it only follows links and never submits anything. Pass `{ formFill: true }` to hand pages containing a form over to the AnswerBot, which fills them and clicks through the journey, scanning every step — this reaches pages behind form submissions that links alone can't:
+
+```ts
+await crawler(0, 'https://your-gov-service.gov.uk', new Set(), driver, { formFill: true });
+```
+
+⚠️ `formFill` submits forms against the target service and picks buttons at random, so runs are neither read-only nor reproducible. Only use it against test environments. The crawler and AnswerBot share the visited set, so form-journey pages are not re-scanned by the crawl.
+
 ### Auto-filling form journeys
 
 ```ts

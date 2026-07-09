@@ -3,7 +3,12 @@ export { generateHtmlReport } from './axe/htmlReportGenerator.js';
 export { BedrockAgentAnalyser } from './ai/bedrockAgentAnalyser.js';
 export type { BedrockRecommendation } from './ai/bedrockRecommendation.js';
 export { GovUkScraper } from './scraper/govUkScraper.js';
-export { crawler, crawlerWithDomain, normaliseUrl } from './crawler/spiderCrawler.js';
+export {
+  crawler,
+  crawlerWithDomain,
+  normaliseUrl,
+  type CrawlerOptions,
+} from './crawler/spiderCrawler.js';
 export { formAutoFill, getPostcode, getAllClickableButtonsPlaywright } from './bots/answerBot.js';
 export { DriverManager } from './browser/driverManager.js';
 export { PlaywrightManager } from './browser/playwrightManager.js';
