@@ -34,7 +34,7 @@
         <selenium.version>4.43.0</selenium.version>
         <aws.sdk.version>2.44.0</aws.sdk.version>
         <jackson.version>3.2.1</jackson.version>
-        <jackson2.version>2.21.2</jackson2.version>
+        <jackson2.version>2.21.5</jackson2.version>
         <jackson.datatype.versionn>3.0.0-rc2</jackson.datatype.versionn>
         <netty.version>4.1.135.Final</netty.version>
         <slf4j.version>2.0.7</slf4j.version>
